@@ -1,0 +1,9 @@
+# Keep LF line endings in every checkout (Windows included), so files whose
+# SHA-256 is recorded in data/manifest.json (e.g. data/tokenizer.json) hash
+# identically on every computer.
+* text=auto eol=lf
+*.bin binary
+*.npy binary
+*.pt binary
+*.png binary
+*.pdf binary
