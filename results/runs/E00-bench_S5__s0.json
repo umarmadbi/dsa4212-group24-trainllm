@@ -1,0 +1,302 @@
+{
+  "run_id": "E00-bench_S5__s0",
+  "experiment": "E00",
+  "seed": 0,
+  "config": {
+    "run_id": "E00-bench_S5__s0",
+    "experiment": "E00",
+    "corpus": "fineweb_edu",
+    "train_tokens_limit": 0,
+    "eval_corpora": [
+      "fineweb_edu"
+    ],
+    "curve_corpus": "fineweb_edu",
+    "curve_tokens": 262144,
+    "n_layer": 12,
+    "n_head": 12,
+    "n_embd": 768,
+    "block_size": 512,
+    "vocab_size": 8192,
+    "dropout": 0.0,
+    "bias": false,
+    "micro_batch": 32,
+    "grad_accum": 2,
+    "lr": 0.0006,
+    "min_lr_ratio": 0.1,
+    "warmup_steps": 100,
+    "weight_decay": 0.1,
+    "beta1": 0.9,
+    "beta2": 0.95,
+    "grad_clip": 1.0,
+    "budget_s": 300.0,
+    "schedule": "time",
+    "max_steps": 0,
+    "eval_every_frac": 0.5,
+    "ckpt_every_s": 1000000000.0,
+    "ckpt_every_steps": 0,
+    "log_every_s": 30.0,
+    "compile": true,
+    "dtype": "bfloat16",
+    "eval_batch": 32
+  },
+  "meta": {
+    "git_commit": "5f8e548cd3d8659af22d0527c0a3619af0e29cd9",
+    "git_dirty": true,
+    "member": "umarmadbi",
+    "modal_workspace": "umarmadbi",
+    "kind": "benchmark",
+    "gpu_name": "NVIDIA L4",
+    "config_file": "configs/E00/bench_S5.yaml"
+  },
+  "gpu_name": "NVIDIA L4",
+  "device": "cuda",
+  "versions": {
+    "python": "3.12.16",
+    "torch": "2.15.0+cu132",
+    "numpy": "2.5.4",
+    "cuda": "13.2"
+  },
+  "params": {
+    "total": 91638528,
+    "token_embedding": 6291456,
+    "position_embedding": 393216,
+    "non_embedding": 84953856
+  },
+  "flops_per_token": 604094976,
+  "tokens_per_step": 32768,
+  "steps": 427,
+  "counted_train_s": 300.24,
+  "budget_s": 300.0,
+  "wallclock_s_this_attempt": 338.8,
+  "attempts": [
+    {
+      "started_utc": "2026-11-01T10:22:04Z",
+      "resumed_from_counted_s": 0.0,
+      "resumed_from_step": 0
+    }
+  ],
+  "eval_paused_s": 1.9,
+  "ckpt_paused_s": 0.0,
+  "tokens_processed": 13991936,
+  "unique_train_tokens": 103523983,
+  "train_tokens_available": 103523983,
+  "passes_over_data": 0.1352,
+  "avg_tokens_per_s": 46602.2,
+  "steady_tokens_per_s": 52059.3,
+  "mfu_steady": 0.2599,
+  "est_train_flops": 8452458242113536,
+  "first_step_s": 32.0091,
+  "step_times_first": [
+    32.0091,
+    0.6335,
+    0.6131,
+    0.6219,
+    0.618,
+    0.6119,
+    0.6191,
+    0.6187,
+    0.613,
+    0.6188,
+    0.6163,
+    0.6196,
+    0.6197,
+    0.6213,
+    0.6284,
+    0.6204,
+    0.6298,
+    0.6228,
+    0.6257,
+    0.6295,
+    0.6236,
+    0.6261,
+    0.6293,
+    0.6264,
+    0.635,
+    0.6346,
+    0.6326,
+    0.6336,
+    0.6434,
+    0.6495,
+    0.6409,
+    0.6341,
+    0.6385,
+    0.6414,
+    0.6407,
+    0.6432,
+    0.6391,
+    0.641,
+    0.6418,
+    0.6394,
+    0.6424,
+    0.6432,
+    0.6412,
+    0.6537,
+    0.6421,
+    0.6547,
+    0.6438,
+    0.6425,
+    0.6546,
+    0.6421,
+    0.6567,
+    0.643,
+    0.64,
+    0.6423,
+    0.6343,
+    0.6435,
+    0.6492,
+    0.6508,
+    0.6351,
+    0.6507
+  ],
+  "peak_memory_gb": 7.998,
+  "final_val": {
+    "fineweb_edu": {
+      "bpb": 1.904728160950747,
+      "loss_per_token": 5.104329658386168,
+      "scored_tokens": 2586692,
+      "scored_bytes": 10000575,
+      "eot_targets_excluded": 1980,
+      "bytes_per_token": 3.866163810766802,
+      "windows": 5056,
+      "context": 512
+    }
+  },
+  "final_val_bpb": 1.904728160950747,
+  "best_curve_bpb_diagnostic": 1.9341893139102955,
+  "curve": [
+    {
+      "step": 0,
+      "counted_s": 0.0,
+      "tokens": 0,
+      "val_bpb": 3.4592283021527184
+    },
+    {
+      "step": 189,
+      "counted_s": 150.37,
+      "tokens": 6193152,
+      "val_bpb": 2.1613586761003853
+    },
+    {
+      "step": 427,
+      "counted_s": 300.24,
+      "tokens": 13991936,
+      "val_bpb": 1.9341893139102955
+    }
+  ],
+  "train_log": [
+    {
+      "step": 1,
+      "counted_s": 32.01,
+      "tokens": 32768,
+      "lr": 5.999999999999999e-06,
+      "train_loss": 9.116759777069092,
+      "passes": 0.0003
+    },
+    {
+      "step": 49,
+      "counted_s": 62.37,
+      "tokens": 1605632,
+      "lr": 0.000294,
+      "train_loss": 7.464665899674098,
+      "passes": 0.0155
+    },
+    {
+      "step": 97,
+      "counted_s": 92.67,
+      "tokens": 3178496,
+      "lr": 0.0005819999999999999,
+      "train_loss": 6.438034355640411,
+      "passes": 0.0307
+    },
+    {
+      "step": 146,
+      "counted_s": 123.16,
+      "tokens": 4784128,
+      "lr": 0.0005756386298695017,
+      "train_loss": 6.034254614187747,
+      "passes": 0.0462
+    },
+    {
+      "step": 194,
+      "counted_s": 153.55,
+      "tokens": 6356992,
+      "lr": 0.0004994073684169836,
+      "train_loss": 5.769921138882637,
+      "passes": 0.0614
+    },
+    {
+      "step": 242,
+      "counted_s": 183.85,
+      "tokens": 7929856,
+      "lr": 0.00038759221261076024,
+      "train_loss": 5.572062770525615,
+      "passes": 0.0766
+    },
+    {
+      "step": 290,
+      "counted_s": 213.93,
+      "tokens": 9502720,
+      "lr": 0.00026445451758771044,
+      "train_loss": 5.411592796444893,
+      "passes": 0.0918
+    },
+    {
+      "step": 338,
+      "counted_s": 244.13,
+      "tokens": 11075584,
+      "lr": 0.0001546342453160315,
+      "train_loss": 5.281424442927043,
+      "passes": 0.107
+    },
+    {
+      "step": 386,
+      "counted_s": 274.39,
+      "tokens": 12648448,
+      "lr": 8.145363771777309e-05,
+      "train_loss": 5.175710101922353,
+      "passes": 0.1222
+    }
+  ],
+  "lr_log": [
+    [
+      50,
+      63.007,
+      0.0003
+    ],
+    [
+      100,
+      94.536,
+      0.0006
+    ],
+    [
+      150,
+      125.695,
+      0.0005711179301303739
+    ],
+    [
+      200,
+      157.347,
+      0.0004868949472676324
+    ],
+    [
+      250,
+      188.887,
+      0.0003670597730553854
+    ],
+    [
+      300,
+      220.24,
+      0.000239526141111231
+    ],
+    [
+      350,
+      251.725,
+      0.0001320347130711999
+    ],
+    [
+      400,
+      283.184,
+      6.955456951043216e-05
+    ]
+  ]
+}

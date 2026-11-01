@@ -1,0 +1,20 @@
+# E00 throughput benchmark (preliminary work, excluded from the per-run budget).
+# Size S1, same 32,768-token step as one micro-batch of 64: does a bigger micro-batch speed up a small model?
+# Measures: compile warm-up, steady tokens/s, peak memory on the L4. Not a reported result.
+run_id: E00-bench_S1_micro64
+experiment: E00
+corpus: fineweb_edu
+n_layer: 6
+n_head: 4
+n_embd: 256
+block_size: 512
+vocab_size: 8192
+micro_batch: 64
+grad_accum: 1          # 64 sequences x 512 = 32,768 tokens per step
+lr: 6.0e-4
+warmup_steps: 100
+budget_s: 300               # 5 min of counted time (benchmark only; final runs use 3600)
+eval_every_frac: 0.5
+ckpt_every_s: 1.0e+9        # no mid-run checkpoint in benchmarks
+compile: true
+dtype: bfloat16

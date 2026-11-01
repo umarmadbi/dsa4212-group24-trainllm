@@ -1,0 +1,239 @@
+"""
+Phase 0 correctness checks (E00). CPU only, ~1-2 minutes, no GPU credits.
+
+    python code/tests/test_pipeline.py
+
+Each test is one row of the E00 checklist. The tests build a tiny synthetic dataset
+(token files, token byte lengths, tokenizer metadata) in a temporary directory, in the
+same layout prepare_data.py writes, so they exercise the real training and evaluation code.
+"""
+
+import json
+import math
+import os
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import torch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from bpb import evaluate_bpb  # noqa: E402
+from model import GPT, GPTConfig  # noqa: E402
+from train import Config, WindowLoader, lr_at, run  # noqa: E402
+
+V, EOT = 64, 63
+
+
+def make_data(root: Path, n_train=60_000, n_val=6_000, seed=0):
+    """Learnable synthetic text: a random 1st-order Markov chain over 63 tokens,
+    documents of random length separated by EOT. Token byte lengths 1-4."""
+    rng = np.random.default_rng(seed)
+    trans = rng.dirichlet(np.full(V - 1, 0.05), size=V - 1)
+
+    def stream(n):
+        out, a = [], 0
+        while len(out) < n:
+            for _ in range(rng.integers(20, 200)):
+                a = rng.choice(V - 1, p=trans[a]); out.append(a)
+            out.append(EOT)
+        return np.array(out[:n], dtype=np.uint16)
+
+    for split, n in (("train", n_train), ("val", n_val)):
+        p = root / "tokens" / "fineweb_edu" / f"{split}.bin"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        stream(n).tofile(p)
+    (root / "tokenizer").mkdir(parents=True, exist_ok=True)
+    tb = rng.integers(1, 5, size=V).astype(np.int16); tb[EOT] = 0
+    np.save(root / "tokenizer" / "token_bytes.npy", tb)
+    (root / "tokenizer" / "meta.json").write_text(json.dumps(dict(vocab_size=V, eot_id=EOT)))
+
+
+def tiny_cfg(**kw):
+    base = dict(run_id="t", n_layer=2, n_head=2, n_embd=32, block_size=32, vocab_size=V,
+                micro_batch=8, lr=3e-3, warmup_steps=5, compile=False, dtype="float32",
+                curve_tokens=2048, eval_batch=16, log_every_s=1e9)
+    base.update(kw)
+    return Config(**base)
+
+
+def test_initial_loss():
+    torch.manual_seed(0)
+    m = GPT(GPTConfig(n_layer=2, n_head=2, n_embd=32, block_size=32, vocab_size=8192, bias=False))
+    x = torch.randint(0, 8192, (8, 32))
+    y = torch.randint(0, 8192, (8, 32))          # independent targets (tied embeddings favour y == x)
+    _, loss = m(x, y)
+    print(f"  initial loss {loss.item():.4f} vs ln(8192) = {math.log(8192):.4f}")
+    assert abs(loss.item() - math.log(8192)) < 0.05
+
+
+class Uniform(torch.nn.Module):
+    """Predicts the uniform distribution; BPB is then known in closed form."""
+    def forward(self, x):
+        return torch.zeros(*x.shape, V), None
+
+
+def test_bpb_hand_calculation(d: Path):
+    toks = np.fromfile(d / "tokens/fineweb_edu/val.bin", dtype=np.uint16)
+    tb = np.load(d / "tokenizer/token_bytes.npy")
+    T = 32
+    r = evaluate_bpb(Uniform(), toks, tb, T, 7, EOT, "cpu")
+    nw = (len(toks) - 1) // T
+    targets = toks[1:nw * T + 1]                    # every target scored once
+    scored = targets[targets != EOT]                # EOT excluded
+    expected = len(scored) * math.log(V) / (tb[scored].sum() * math.log(2))
+    print(f"  bpb {r['bpb']:.6f} vs hand {expected:.6f}; EOT excluded {r['eot_targets_excluded']}")
+    assert abs(r["bpb"] - expected) < 1e-6         # float32 cross-entropy rounding
+    assert r["scored_tokens"] == len(scored)
+    assert r["eot_targets_excluded"] == int((targets == EOT).sum())
+    assert r["scored_bytes"] == int(tb[scored].sum())
+    # batch size must not change the result (no per-batch averaging)
+    r2 = evaluate_bpb(Uniform(), toks, tb, T, 1, EOT, "cpu")
+    assert abs(r2["bpb"] - r["bpb"]) < 1e-9
+
+
+def test_loader_covers_each_window_once():
+    toks = np.arange(1001, dtype=np.uint16)
+    L = WindowLoader(toks, T=10, seed=3)
+    seen = []
+    for _ in range(L.n_windows // 7 + 1):
+        seen.extend(L.next_batch(7)[:, 0].tolist())
+    first_pass = seen[:L.n_windows]
+    assert sorted(first_pass) == list(range(0, L.n_windows * 10, 10))
+    b = L.next_batch(1)
+    assert torch.equal(b[0], torch.arange(b[0, 0].item(), b[0, 0].item() + 11))  # T+1 contiguous
+    assert L.epoch >= 1
+
+
+def test_lr_schedule():
+    c = Config(lr=1.0, min_lr_ratio=0.1, warmup_steps=10, budget_s=100.0)
+    assert abs(lr_at(c, 0, 0.0, None) - 0.1) < 1e-12
+    assert abs(lr_at(c, 9, 1.0, None) - 1.0) < 1e-12
+    assert abs(lr_at(c, 10, 5.0, 5.0) - 1.0) < 1e-12           # decay starts after warmup
+    assert abs(lr_at(c, 500, 100.0, 5.0) - 0.1) < 1e-12        # exactly min LR at the cap
+    assert abs(lr_at(c, 500, 52.5, 5.0) - 0.55) < 1e-12        # halfway: midpoint
+
+
+def test_overfit_one_batch(d: Path):
+    torch.manual_seed(0)
+    m = GPT(GPTConfig(n_layer=2, n_head=2, n_embd=64, block_size=32, vocab_size=V, bias=False))
+    opt = torch.optim.AdamW(m.parameters(), lr=3e-3)
+    toks = np.fromfile(d / "tokens/fineweb_edu/train.bin", dtype=np.uint16)
+    b = torch.from_numpy(toks[:8 * 33].astype(np.int64)).view(8, 33)
+    for _ in range(300):
+        _, loss = m(b[:, :-1], b[:, 1:].contiguous()); loss.backward(); opt.step(); opt.zero_grad()
+    print(f"  loss after 300 steps on one batch: {loss.item():.4f}")
+    assert loss.item() < 0.1
+
+
+def test_budget_stop_and_learning(d: Path, out: Path):
+    r = run(tiny_cfg(run_id="budget", budget_s=8.0, eval_every_frac=0.25), 0, str(d), str(out))
+    print(f"  counted {r['counted_train_s']}s, {r['steps']} steps, curve points {len(r['curve'])}, "
+          f"bpb {r['curve'][0]['val_bpb']:.3f} -> {r['final_val_bpb']:.3f}")
+    assert 8.0 <= r["counted_train_s"] < 8.0 + 1.0
+    assert r["final_val_bpb"] < r["curve"][0]["val_bpb"] - 0.3          # it learns
+    assert len(r["curve"]) >= 5                                           # step 0 + periodic + final
+    assert r["lr_log"] == [] or r["lr_log"][-1][2] < 3e-3
+    assert abs(r["train_log"][-1]["lr"] - 3e-3 * 0.1) < 3e-3 * 0.2        # near min LR at the end
+    # result must be plain JSON (it is unpickled on a computer without torch; E00 bug)
+    def plain(o):
+        if isinstance(o, dict):
+            return all(type(k) is str and plain(v) for k, v in o.items())
+        if isinstance(o, list):
+            return all(plain(v) for v in o)
+        return o is None or type(o) in (str, int, float, bool)
+    assert plain(r), "result contains non-JSON types"
+
+
+def test_resume_matches_continuous(d: Path, out: Path):
+    common = dict(schedule="steps", max_steps=30, budget_s=1e9, ckpt_every_steps=10,
+                  eval_every_frac=10.0)
+    a = run(tiny_cfg(run_id="cont", **common), 1, str(d), str(out))
+    os.environ["CRASH_AT_STEP"] = "25"
+    try:
+        run(tiny_cfg(run_id="crash", **common), 1, str(d), str(out))
+    except SystemExit:
+        pass
+    finally:
+        del os.environ["CRASH_AT_STEP"]
+    ck = torch.load(out / "crash" / "ckpt_latest.pt", weights_only=False)
+    assert ck["state"]["step"] == 20 and ck["state"]["counted"] > 0
+    b = run(tiny_cfg(run_id="crash", **common), 1, str(d), str(out))
+    wa = torch.load(out / "cont" / "final_model.pt", weights_only=False)["model"]
+    wb = torch.load(out / "crash" / "final_model.pt", weights_only=False)["model"]
+    maxdiff = max((wa[k] - wb[k]).abs().max().item() for k in wa)
+    print(f"  resumed run: attempts {len(b['attempts'])}, resumed from step "
+          f"{b['attempts'][-1]['resumed_from_step']}, max weight diff vs continuous {maxdiff:.2e}")
+    assert b["steps"] == a["steps"] == 30
+    assert len(b["attempts"]) == 2 and b["attempts"][1]["resumed_from_step"] == 20
+    assert b["counted_train_s"] >= b["attempts"][1]["resumed_from_counted_s"]
+    assert maxdiff < 1e-6
+    assert abs(a["final_val_bpb"] - b["final_val_bpb"]) < 1e-6
+
+
+def test_refuses_wrong_resume(d: Path, out: Path):
+    try:
+        run(tiny_cfg(run_id="crash", schedule="steps", max_steps=30, budget_s=1e9,
+                     ckpt_every_steps=10, eval_every_frac=10.0), 2, str(d), str(out))
+    except RuntimeError as e:
+        assert "different config/seed" in str(e)
+        return
+    raise AssertionError("resumed a checkpoint with a different seed")
+
+
+def test_all_config_files_load():
+    """Every real config file loads with correct types (YAML 1.1 reads `1.0e9` as text;
+    this bug crashed all 8 E00 benchmark runs on 2026-11-01)."""
+    import dataclasses
+    from config import Config, load_config
+    root = Path(__file__).resolve().parents[2] / "configs"
+    files = sorted(root.rglob("*.yaml"))
+    assert files, "no config files found"
+    types = {f.name: f.type for f in dataclasses.fields(Config)}
+    py = {"float": float, "int": int, "bool": bool, "str": str, "list": list}
+    for f in files:
+        c = load_config(str(f))
+        for k, t in types.items():
+            assert isinstance(getattr(c, k), py[t]), f"{f.name}: {k} is {getattr(c, k)!r}"
+    assert load_config(None, {"ckpt_every_s": "1.0e9"}).ckpt_every_s == 1e9
+    for bad in ({"budget_s": "abc"}, {"compile": "yes"}, {"budgt_s": 3}):
+        try:
+            load_config(None, bad)
+        except (TypeError, ValueError):
+            continue
+        raise AssertionError(f"accepted bad config {bad}")
+    print(f"  {len(files)} config files OK")
+
+
+def test_no_pretrained_path():
+    import model as M
+    assert not hasattr(M.GPT, "from_pretrained")
+
+
+if __name__ == "__main__":
+    tmp = Path(tempfile.mkdtemp())
+    d, out = tmp / "data", tmp / "runs"
+    make_data(d)
+    tests = [("initial loss ~ ln(vocab)", test_initial_loss, ()),
+             ("BPB evaluator = hand calculation", test_bpb_hand_calculation, (d,)),
+             ("loader: each window once per pass", test_loader_covers_each_window_once, ()),
+             ("LR schedule: warmup, cosine, min LR at cap", test_lr_schedule, ()),
+             ("overfit one tiny batch", test_overfit_one_batch, (d,)),
+             ("time budget stop + learning curve", test_budget_stop_and_learning, (d, out)),
+             ("kill + resume == continuous run", test_resume_matches_continuous, (d, out)),
+             ("refuse resume with other seed", test_refuses_wrong_resume, (d, out)),
+             ("all config files load with correct types", test_all_config_files_load, ()),
+             ("no pretrained-weights code path", test_no_pretrained_path, ())]
+    failed = 0
+    for name, fn, args in tests:
+        try:
+            fn(*args)
+            print(f"PASS  {name}")
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            print(f"FAIL  {name}: {type(e).__name__}: {e}")
+    shutil.rmtree(tmp)
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    sys.exit(1 if failed else 0)

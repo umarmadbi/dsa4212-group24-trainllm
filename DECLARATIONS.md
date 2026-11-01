@@ -241,4 +241,7 @@ data/manifest.json shards used, split sizes, test-set hashes
 
 | Date | Change | Reason |
 |---|---|---|
-| — | — | — |
+| 2026-11-01 | `torch.compile` **on** for every run (its warm-up stays inside the 60 min) | E00 benchmark: +20 % steady throughput, 23-45 s warm-up (<1.3 % of the budget), net ~+19 % tokens per hour, less memory |
+| 2026-11-01 | Batch: **32,768 tokens per optimiser step** (micro-batch 32 x 2 accumulation x context 512), same for every model size | E00: a larger micro-batch gave no speed gain; 32k tokens is well below the estimated critical batch size, so it is sample-efficient; one batch for all sizes keeps the size comparison clean. A batch-size experiment may follow in Phase 4 |
+| 2026-11-01 | Model-size grid: **6 sizes** (6.9M, 11.4M, 17.5M, 25.6M, 35.9M, 64.6M total parameters), head dim 64, width/depth ratio ~43-53 | E00: measured throughput + Chinchilla allocation predict an optimum near 25-30M; grid is roughly log-spaced (ratio ~1.5) around it with brackets on both sides. If the best size is at an edge, one more size beyond that edge is run |
+| 2026-11-01 | Full data download: **9,500 MB of training text per training corpus** (about 2.3-2.6B tokens each) | Declared rule: >= 1.5 x the tokens the fastest configuration (6.9M) processes in 60 min = 1.5 x 1.52B = 2.28B. No change to the rule itself |

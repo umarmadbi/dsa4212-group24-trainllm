@@ -1,0 +1,317 @@
+{
+  "run_id": "E00-bench_S4__s0",
+  "experiment": "E00",
+  "seed": 0,
+  "config": {
+    "run_id": "E00-bench_S4__s0",
+    "experiment": "E00",
+    "corpus": "fineweb_edu",
+    "train_tokens_limit": 0,
+    "eval_corpora": [
+      "fineweb_edu"
+    ],
+    "curve_corpus": "fineweb_edu",
+    "curve_tokens": 262144,
+    "n_layer": 12,
+    "n_head": 10,
+    "n_embd": 640,
+    "block_size": 512,
+    "vocab_size": 8192,
+    "dropout": 0.0,
+    "bias": false,
+    "micro_batch": 32,
+    "grad_accum": 2,
+    "lr": 0.0006,
+    "min_lr_ratio": 0.1,
+    "warmup_steps": 100,
+    "weight_decay": 0.1,
+    "beta1": 0.9,
+    "beta2": 0.95,
+    "grad_clip": 1.0,
+    "budget_s": 300.0,
+    "schedule": "time",
+    "max_steps": 0,
+    "eval_every_frac": 0.5,
+    "ckpt_every_s": 1000000000.0,
+    "ckpt_every_steps": 0,
+    "log_every_s": 30.0,
+    "compile": true,
+    "dtype": "bfloat16",
+    "eval_batch": 32
+  },
+  "meta": {
+    "git_commit": "5f8e548cd3d8659af22d0527c0a3619af0e29cd9",
+    "git_dirty": true,
+    "member": "umarmadbi",
+    "modal_workspace": "umarmadbi",
+    "kind": "benchmark",
+    "gpu_name": "NVIDIA L4",
+    "config_file": "configs/E00/bench_S4.yaml"
+  },
+  "gpu_name": "NVIDIA L4",
+  "device": "cuda",
+  "versions": {
+    "python": "3.12.16",
+    "torch": "2.15.0+cu132",
+    "numpy": "2.5.4",
+    "cuda": "13.2"
+  },
+  "params": {
+    "total": 64568960,
+    "token_embedding": 5242880,
+    "position_embedding": 327680,
+    "non_embedding": 58998400
+  },
+  "flops_per_token": 432633600,
+  "tokens_per_step": 32768,
+  "steps": 565,
+  "counted_train_s": 300.35,
+  "budget_s": 300.0,
+  "wallclock_s_this_attempt": 335.1,
+  "attempts": [
+    {
+      "started_utc": "2026-11-01T10:20:35Z",
+      "resumed_from_counted_s": 0.0,
+      "resumed_from_step": 0
+    }
+  ],
+  "eval_paused_s": 1.4,
+  "ckpt_paused_s": 0.0,
+  "tokens_processed": 18513920,
+  "unique_train_tokens": 103523983,
+  "train_tokens_available": 103523983,
+  "passes_over_data": 0.1788,
+  "avg_tokens_per_s": 61640.5,
+  "steady_tokens_per_s": 71241.5,
+  "mfu_steady": 0.2547,
+  "est_train_flops": 8009743859712000,
+  "first_step_s": 38.8015,
+  "step_times_first": [
+    38.8015,
+    0.4251,
+    0.429,
+    0.4438,
+    0.429,
+    0.4408,
+    0.4342,
+    0.4333,
+    0.4354,
+    0.4347,
+    0.4343,
+    0.43,
+    0.4359,
+    0.4344,
+    0.4342,
+    0.4351,
+    0.4358,
+    0.4396,
+    0.4365,
+    0.434,
+    0.4363,
+    0.4342,
+    0.4357,
+    0.4337,
+    0.4377,
+    0.4362,
+    0.4396,
+    0.438,
+    0.4346,
+    0.4413,
+    0.4358,
+    0.433,
+    0.4378,
+    0.4416,
+    0.4387,
+    0.4369,
+    0.4421,
+    0.4419,
+    0.439,
+    0.4393,
+    0.4387,
+    0.4403,
+    0.4399,
+    0.4431,
+    0.4398,
+    0.4364,
+    0.4426,
+    0.4404,
+    0.4365,
+    0.4403,
+    0.44,
+    0.4442,
+    0.4383,
+    0.4386,
+    0.441,
+    0.4407,
+    0.4444,
+    0.4403,
+    0.4399,
+    0.4447
+  ],
+  "peak_memory_gb": 6.587,
+  "final_val": {
+    "fineweb_edu": {
+      "bpb": 1.845234709994256,
+      "loss_per_token": 4.944897886219068,
+      "scored_tokens": 2586692,
+      "scored_bytes": 10000575,
+      "eot_targets_excluded": 1980,
+      "bytes_per_token": 3.866163810766802,
+      "windows": 5056,
+      "context": 512
+    }
+  },
+  "final_val_bpb": 1.845234709994256,
+  "best_curve_bpb_diagnostic": 1.8737425796794118,
+  "curve": [
+    {
+      "step": 0,
+      "counted_s": 0.0,
+      "tokens": 0,
+      "val_bpb": 3.457729023685911
+    },
+    {
+      "step": 249,
+      "counted_s": 150.2,
+      "tokens": 8159232,
+      "val_bpb": 2.1037381485339557
+    },
+    {
+      "step": 565,
+      "counted_s": 300.35,
+      "tokens": 18513920,
+      "val_bpb": 1.8737425796794118
+    }
+  ],
+  "train_log": [
+    {
+      "step": 1,
+      "counted_s": 38.8,
+      "tokens": 32768,
+      "lr": 5.999999999999999e-06,
+      "train_loss": 9.103222846984863,
+      "passes": 0.0003
+    },
+    {
+      "step": 70,
+      "counted_s": 69.04,
+      "tokens": 2293760,
+      "lr": 0.00041999999999999996,
+      "train_loss": 7.3133215627808505,
+      "passes": 0.0222
+    },
+    {
+      "step": 138,
+      "counted_s": 99.36,
+      "tokens": 4521984,
+      "lr": 0.0005923237348808249,
+      "train_loss": 6.205914942657246,
+      "passes": 0.0437
+    },
+    {
+      "step": 205,
+      "counted_s": 129.76,
+      "tokens": 6717440,
+      "lr": 0.0005403383600170947,
+      "train_loss": 5.834206413866869,
+      "passes": 0.0649
+    },
+    {
+      "step": 270,
+      "counted_s": 159.98,
+      "tokens": 8847360,
+      "lr": 0.00044915473859338757,
+      "train_loss": 5.575065829203679,
+      "passes": 0.0855
+    },
+    {
+      "step": 335,
+      "counted_s": 190.29,
+      "tokens": 10977280,
+      "lr": 0.00033525999165106944,
+      "train_loss": 5.37680575297429,
+      "passes": 0.106
+    },
+    {
+      "step": 399,
+      "counted_s": 220.62,
+      "tokens": 13074432,
+      "lr": 0.00022039259293855844,
+      "train_loss": 5.210873652249575,
+      "passes": 0.1263
+    },
+    {
+      "step": 462,
+      "counted_s": 250.84,
+      "tokens": 15138816,
+      "lr": 0.00012638505256100445,
+      "train_loss": 5.0928826975444,
+      "passes": 0.1462
+    },
+    {
+      "step": 525,
+      "counted_s": 281.09,
+      "tokens": 17203200,
+      "lr": 7.050713925654677e-05,
+      "train_loss": 4.997113428418598,
+      "passes": 0.1662
+    }
+  ],
+  "lr_log": [
+    [
+      50,
+      60.211,
+      0.0003
+    ],
+    [
+      100,
+      82.353,
+      0.0006
+    ],
+    [
+      150,
+      104.774,
+      0.0005865459994919807
+    ],
+    [
+      200,
+      127.466,
+      0.000545827407265211
+    ],
+    [
+      250,
+      150.664,
+      0.0004805403226238696
+    ],
+    [
+      300,
+      173.98,
+      0.0003980867093854602
+    ],
+    [
+      350,
+      197.35,
+      0.0003077820157106156
+    ],
+    [
+      400,
+      221.096,
+      0.0002186836388135416
+    ],
+    [
+      450,
+      245.091,
+      0.00014178986032692073
+    ],
+    [
+      500,
+      269.069,
+      8.728026135131642e-05
+    ],
+    [
+      550,
+      293.105,
+      6.152903095290915e-05
+    ]
+  ]
+}

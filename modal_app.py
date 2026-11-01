@@ -2,22 +2,37 @@
 Modal launch file for the DSA4212 small-LLM project.
 
 The GPU is chosen here, in code (gpu="L4"), not on the Modal website.
-Matches DECLARATIONS.md §1: 1 x NVIDIA L4, bf16, standard (preemptible) pricing.
+Matches DECLARATIONS.md section 1: 1 x NVIDIA L4, bf16, standard (preemptible) pricing.
 
 Usage (from the repo root, after `pip install modal` and `modal setup`):
-    modal run modal_app.py::gpu_check          # ~1 min, confirms you got an L4
-    modal run modal_app.py::train --config configs/baseline.yaml --seed 0
+    modal run modal_app.py::gpu_check                     # ~1 min, confirms you got an L4
+    modal run modal_app.py::prepare_data --train-mb 400   # data (CPU only)
+    modal run modal_app.py::launch --configs configs/E00/bench_S3.yaml --seeds 0
+    modal run modal_app.py::launch --configs "configs/E00/a.yaml,configs/E00/b.yaml"
+
+`launch` runs each (config, seed) pair as its own job on its own L4, in parallel.
+When a job finishes it writes results/runs/<run_id>__s<seed>.json on this computer
+and appends a row to results/compute_ledger.csv, so every GPU run is recorded.
 """
+import csv
+import datetime as dt
+import json
 import subprocess
+from pathlib import Path
+
 import modal
 
 # ---------------------------------------------------------------------------
-# Container image: the software every run uses (pin exact versions later in
-# requirements.txt, as DECLARATIONS.md §1 requires).
+# Container image: the software every run uses. Versions are pinned in
+# requirements.txt, as DECLARATIONS.md section 1 requires.
 # ---------------------------------------------------------------------------
 image = (
-    modal.Image.debian_slim(python_version="3.11")
-    .pip_install("torch", "numpy", "tokenizers", "pyyaml", "datasets")
+    modal.Image.debian_slim(python_version="3.12")  # numpy 2.5 needs >=3.12
+    .apt_install("gcc", "g++")  # torch.compile (Inductor/Triton) builds kernels at runtime
+    # Pin Triton's floating-point fusion setting (its default changes in Triton 3.10),
+    # so every run compiles the same way.
+    .env({"TRITON_DEFAULT_FP_FUSION": "1"})
+    .pip_install_from_requirements("requirements.txt")  # exact pinned versions
     .add_local_dir("code", remote_path="/root/code")
     .add_local_dir("configs", remote_path="/root/configs")
 )
@@ -30,6 +45,7 @@ runs_vol = modal.Volume.from_name("small-llm-runs", create_if_missing=True)
 app = modal.App("dsa4212-small-llm", image=image)
 
 GPU = "L4"  # <-- the declared hardware. Do not change for final runs.
+L4_USD_PER_HOUR = 0.80  # for the ledger's cost estimate only
 
 
 @app.function(gpu=GPU, timeout=10 * 60)
@@ -46,35 +62,185 @@ def gpu_check():
 
 @app.function(
     gpu=GPU,
-    # Modal stops a function after 5 minutes by default. A run needs 60 min of
-    # counted training plus paused validation/checkpointing, so allow 2 hours.
+    cpu=4,
+    memory=32768,  # the train split is loaded into RAM before the clock starts
+    # A run needs 60 min of counted training plus paused validation/checkpointing,
+    # compile and final evaluation, so allow 2 hours.
     timeout=2 * 60 * 60,
-    # If the container is preempted or crashes, Modal restarts it; train.py
-    # resumes from the last checkpoint with its counted time carried over.
+    # If the container is preempted or crashes, Modal restarts it; train.py resumes
+    # from the last checkpoint with its counted time carried over.
     retries=modal.Retries(max_retries=2, initial_delay=10.0),
     volumes={"/data": data_vol, "/runs": runs_vol},
 )
-def train(config: str, seed: int = 0):
+def train(config: str, seed: int, meta: dict) -> dict:
+    import sys
     gpu_name = subprocess.run(
         ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
         capture_output=True, text=True,
     ).stdout.strip()
-    assert "L4" in gpu_name, f"Wrong GPU: {gpu_name}"  # DECLARATIONS.md §1
+    assert "L4" in gpu_name, f"Wrong GPU: {gpu_name}"  # DECLARATIONS.md section 1
     print(f"GPU: {gpu_name}")
+    import traceback
+    sys.path.insert(0, "/root/code")
+    from train import load_config, run
+    cfg = load_config(f"/root/{config}", {})
+    cfg.run_id = f"{cfg.run_id}__s{seed}"  # one output directory per (config, seed)
+    meta = dict(meta, gpu_name=gpu_name, config_file=config)
+    try:
+        return run(cfg, seed, "/data", "/runs", meta=meta, commit_fn=runs_vol.commit)
+    except Exception:  # noqa: BLE001
+        # A Python exception is a bug, not lost hardware: report it instead of raising,
+        # so Modal does not retry it (retries are for preemption / container loss only).
+        tb = traceback.format_exc()
+        print(tb)
+        return {"error": tb.strip().splitlines()[-1], "traceback": tb, "run_id": cfg.run_id}
 
-    # train.py (our modified nanoGPT) is not written yet; this is where it plugs in.
+
+@app.function(cpu=8, memory=32768, timeout=6 * 60 * 60,
+              volumes={"/data": data_vol})
+def prepare_data(stage: str = "all", train_mb: float = 400, eval_mb: float = 10,
+                 tok_sample_mb: float = 200):
+    """CPU-only (cheap): download, split, train tokenizer, tokenize. Phase 0.
+
+    Phase 0 sample:  modal run modal_app.py::prepare_data --train-mb 400
+    The full download (size decided from the L4 benchmarks) reruns with a larger
+    --train-mb; validation/test splits are unchanged and train only grows.
+    """
     subprocess.run(
-        ["python", "/root/code/train.py", f"--config=/root/{config}",
-         f"--seed={seed}", "--data_dir=/data", "--out_root=/runs",
-         f"--gpu_name={gpu_name}"],
+        ["python", "/root/code/prepare_data.py", "--out=/data", f"--stage={stage}",
+         f"--train_mb={train_mb}", f"--eval_mb={eval_mb}",
+         f"--tok_sample_mb={tok_sample_mb}"],
         check=True,
     )
-    runs_vol.commit()  # make sure results are saved to the Volume
-
-
-@app.function(cpu=8, memory=32768, timeout=4 * 60 * 60,
-              volumes={"/data": data_vol})
-def prepare_data():
-    """CPU-only (cheap): download, split, train tokenizer, tokenize. Phase 0."""
-    subprocess.run(["python", "/root/code/prepare_data.py", "--out=/data"], check=True)
     data_vol.commit()
+
+
+# ---------------------------------------------------------------------------
+# Local side: runs on your computer, launches jobs and records their results.
+# ---------------------------------------------------------------------------
+def _git_info() -> dict:
+    def git(*a):
+        return subprocess.run(["git", *a], capture_output=True, text=True).stdout.strip()
+    commit = git("rev-parse", "HEAD")
+    dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
+    return dict(git_commit=commit, git_dirty=dirty)
+
+
+def _modal_workspace() -> str:
+    out = subprocess.run(["modal", "profile", "current"], capture_output=True, text=True)
+    return out.stdout.strip() or "unknown"
+
+
+LEDGER_FIELDS = ["run_id", "experiment", "kind", "date_sgt", "member", "modal_workspace",
+                 "gpu_name", "git_commit", "config", "seed", "counted_train_s", "wallclock_s",
+                 "tokens_processed", "status", "cost_usd", "notes"]
+
+
+def _record(result: dict | None, config: str, seed: int, meta: dict, kind: str,
+            started: dt.datetime, error: str | None = None):
+    sgt = dt.timezone(dt.timedelta(hours=8))
+    # Container time of the (last) attempt; falls back to time since launch for failures
+    # (which then includes queueing, so it overestimates).
+    wall = (result["wallclock_s_this_attempt"] if result
+            else (dt.datetime.now(sgt) - started).total_seconds())
+    commit = meta["git_commit"][:7] + ("+dirty" if meta["git_dirty"] else "")
+    if result is not None:
+        out = Path("results/runs") / f"{result['run_id']}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2, default=str))
+        print(f"saved {out}")
+    row = dict(
+        run_id=result["run_id"] if result else f"{Path(config).stem}__s{seed}",
+        experiment=result["experiment"] if result else "",
+        kind=kind, date_sgt=started.strftime("%Y-%m-%d %H:%M"), member=meta["member"],
+        modal_workspace=meta["modal_workspace"],
+        gpu_name=result["gpu_name"] if result else "", git_commit=commit, config=config,
+        seed=seed, counted_train_s=result["counted_train_s"] if result else "",
+        wallclock_s=round(wall), tokens_processed=result["tokens_processed"] if result else "",
+        status="completed" if result else "failed",
+        cost_usd=f"~{wall / 3600 * L4_USD_PER_HOUR:.2f}",
+        notes=(f"final val bpb {result['final_val_bpb']:.4f}; attempts {len(result['attempts'])}"
+               if result else f"ERROR: {error}"[:300]),
+    )
+    ledger = Path("results/compute_ledger.csv")
+    with open(ledger, "a", newline="", encoding="utf-8") as f:
+        csv.DictWriter(f, fieldnames=LEDGER_FIELDS).writerow(row)
+
+
+@app.local_entrypoint()
+def launch(configs: str, seeds: str = "0", kind: str = "pilot", member: str = "umarmadbi"):
+    """Run every (config, seed) pair in parallel, each on its own L4."""
+    import glob as _glob
+    cfg_list = []
+    for c in (c.strip().replace("\\", "/") for c in configs.split(",") if c.strip()):
+        matches = sorted(_glob.glob(c)) if any(ch in c for ch in "*?[") else [c]
+        if not matches:
+            raise FileNotFoundError(f"no config matches {c}")
+        cfg_list.extend(matches)
+    cfg_list = [c.replace("\\", "/") for c in cfg_list]
+    seed_list = [int(s) for s in seeds.split(",")]
+    # Validate every config HERE, before any GPU starts (catches typos and wrong types).
+    import sys
+    sys.path.insert(0, str(Path("code").resolve()))
+    from config import load_config
+    for c in cfg_list:
+        if not Path(c).exists():
+            raise FileNotFoundError(c)
+        load_config(c)
+    print(f"{len(cfg_list)} config(s) validated locally")
+    meta = dict(_git_info(), member=member, modal_workspace=_modal_workspace(), kind=kind)
+    if meta["git_dirty"]:
+        print("WARNING: uncommitted changes to tracked files; the ledger marks this run +dirty. "
+              "Final runs must be launched from a clean commit.")
+    sgt = dt.timezone(dt.timedelta(hours=8))
+    started = dt.datetime.now(sgt)
+    jobs = [(c, s) for c in cfg_list for s in seed_list]
+    calls = [(c, s, train.spawn(c, s, meta)) for c, s in jobs]
+    print(f"launched {len(calls)} job(s): " + ", ".join(f"{c}#s{s}" for c, s, _ in calls))
+    for c, s, call in calls:
+        try:
+            res = call.get()
+            if "error" in res:
+                Path("results/failed").mkdir(parents=True, exist_ok=True)
+                Path(f"results/failed/{res['run_id']}.txt").write_text(res["traceback"])
+                raise RuntimeError(res["error"])
+            _record(res, c, s, meta, kind, started)
+            print(f"done {res['run_id']}: final val bpb {res['final_val_bpb']:.4f}, "
+                  f"{res['steady_tokens_per_s']} tokens/s steady")
+        except Exception as e:  # noqa: BLE001  (record failed runs too)
+            _record(None, c, s, meta, kind, started, error=repr(e))
+            print(f"FAILED {c} seed {s}: {e!r}")
+
+
+@app.local_entrypoint()
+def recover(run_ids: str, configs: str, seeds: str = "0", kind: str = "benchmark",
+            member: str = "umarmadbi"):
+    """Fetch result.json of finished runs from the runs Volume and record them locally.
+
+    For runs that trained successfully but whose result did not reach this computer.
+    run_ids / configs are comma-separated, in the same order.
+        modal run modal_app.py::recover --run-ids "E00-bench_S1__s0" --configs "configs/E00/bench_S1.yaml"
+    """
+    ids = [r.strip() for r in run_ids.split(",") if r.strip()]
+    cfgs = [c.strip().replace("\\", "/") for c in configs.split(",") if c.strip()]
+    seed_list = [int(s) for s in seeds.split(",")]
+    if len(seed_list) == 1:
+        seed_list = seed_list * len(ids)
+    assert len(ids) == len(cfgs) == len(seed_list), "run_ids, configs, seeds must align"
+    meta = dict(_git_info(), member=member, modal_workspace=_modal_workspace(), kind=kind)
+    sgt = dt.timezone(dt.timedelta(hours=8))
+    for rid, c, s in zip(ids, cfgs, seed_list):
+        try:
+            raw = b"".join(runs_vol.read_file(f"{rid}/result.json"))
+        except Exception as e:  # noqa: BLE001
+            print(f"no result for {rid}: {e!r}")
+            continue
+        res = json.loads(raw)
+        # commit/meta recorded inside the result are the ones the run actually used
+        run_meta = dict(meta, git_commit=res["meta"].get("git_commit", meta["git_commit"]),
+                        git_dirty=res["meta"].get("git_dirty", meta["git_dirty"]))
+        started = dt.datetime.fromisoformat(res["attempts"][0]["started_utc"].replace("Z", "+00:00")
+                                            ).astimezone(sgt)
+        _record(res, c, s, run_meta, kind, started)
+        print(f"recovered {rid}: final val bpb {res['final_val_bpb']:.4f}, "
+              f"{res['steady_tokens_per_s']} tokens/s steady")

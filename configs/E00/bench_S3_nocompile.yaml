@@ -1,0 +1,20 @@
+# E00 throughput benchmark (preliminary work, excluded from the per-run budget).
+# Size S3 without torch.compile: is compile worth its counted warm-up?
+# Measures: compile warm-up, steady tokens/s, peak memory on the L4. Not a reported result.
+run_id: E00-bench_S3_nocompile
+experiment: E00
+corpus: fineweb_edu
+n_layer: 10
+n_head: 8
+n_embd: 512
+block_size: 512
+vocab_size: 8192
+micro_batch: 32
+grad_accum: 2          # 64 sequences x 512 = 32,768 tokens per step
+lr: 6.0e-4
+warmup_steps: 100
+budget_s: 300               # 5 min of counted time (benchmark only; final runs use 3600)
+eval_every_frac: 0.5
+ckpt_every_s: 1.0e+9        # no mid-run checkpoint in benchmarks
+compile: false
+dtype: bfloat16

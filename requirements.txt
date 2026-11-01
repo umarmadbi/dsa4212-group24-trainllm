@@ -1,0 +1,9 @@
+# Runtime dependencies for every Modal job (DECLARATIONS.md section 1).
+# Exact versions are pinned so all runs, on every account, use identical software.
+torch==2.15.0
+numpy==2.5.4
+tokenizers==0.23.3
+pyarrow==26.0.0
+zstandard==0.25.0
+huggingface_hub==2.4.0
+pyyaml==6.0.3
