@@ -44,6 +44,8 @@ runs_vol = modal.Volume.from_name("small-llm-runs", create_if_missing=True)
 
 app = modal.App("dsa4212-small-llm", image=image)
 
+_INPUTS_IN_THIS_CONTAINER = 0  # counts runs served by one container process (should stay 1)
+
 GPU = "L4"  # <-- the declared hardware. Do not change for final runs.
 L4_USD_PER_HOUR = 0.80  # for the ledger's cost estimate only
 
@@ -71,9 +73,16 @@ def gpu_check():
     # from the last checkpoint with its counted time carried over.
     retries=modal.Retries(max_retries=2, initial_delay=10.0),
     volumes={"/data": data_vol, "/runs": runs_vol},
+    # One run per container (D08). Modal otherwise reuses a finished container for the next
+    # queued run, which then finds torch.compile's kernels already cached and skips the
+    # ~20-45 s compile warm-up: it gets that time as extra training inside the same budget.
+    # Found in E01 (N11 lr2e-3 and lr8e-3: first step 0.11 s instead of ~27 s).
+    single_use_containers=True,
 )
 def train(config: str, seed: int, meta: dict) -> dict:
     import sys
+    global _INPUTS_IN_THIS_CONTAINER
+    _INPUTS_IN_THIS_CONTAINER += 1
     gpu_name = subprocess.run(
         ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
         capture_output=True, text=True,
@@ -88,6 +97,7 @@ def train(config: str, seed: int, meta: dict) -> dict:
     cfg = load_config(f"/root/{config}", {})
     cfg.run_id = f"{cfg.run_id}__s{seed}"  # one output directory per (config, seed)
     meta = dict(meta, gpu_name=gpu_name, config_file=config,
+                inputs_in_this_container=_INPUTS_IN_THIS_CONTAINER,  # must be 1 (D08)
                 config_sha256=hashlib.sha256(Path(f"/root/{config}").read_bytes()).hexdigest())
 
     def hard_kill():

@@ -1,0 +1,28 @@
+# E01 HORIZON CHECK (rule R5, D07): does the LR picked in 15-min pilots still win at 60 min?
+# N26 15-min ranking: 2e-3 best, 4e-3 runner-up (higher neighbour) -> also run the lower
+# neighbour 1e-3, because the optimal LR tends to fall as training gets longer (Bjorck et al. 2024).
+# The run at the LR finally chosen for N26 is also the Phase 2 N26 seed-0 run (rule R6).
+# Launch ONLY after: Modal resume test passed, sigma15 measured (R4), amendment in D07 agreed.
+# This run: peak LR 2.0e-03.
+run_id: E01-N26_lr2e-3_60min
+experiment: E01
+corpus: fineweb_edu
+n_layer: 9
+n_head: 7
+n_embd: 448
+block_size: 512
+vocab_size: 8192
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 2.0e-03
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 3600              # full 60-min budget (horizon check)
+eval_every_frac: 0.05
+ckpt_every_s: 600           # ~10 min, as declared (section 1)
+compile: true
+dtype: bfloat16

@@ -235,10 +235,14 @@ def rng_state():
 
 
 def set_rng_state(s):
+    # The checkpoint is loaded with map_location=<device>, which moves EVERY tensor in it to
+    # the GPU, including these RNG states; PyTorch only accepts them as CPU ByteTensors.
+    # (Bug found by the Modal kill-and-resume test, 2026-11-01: every real resume on a GPU
+    # would have crashed. The local CPU test could not catch it. D08.)
     random.setstate(s["python"]); np.random.set_state(s["numpy"])
-    torch.set_rng_state(s["torch"])
+    torch.set_rng_state(s["torch"].cpu())
     if "cuda" in s and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(s["cuda"])
+        torch.cuda.set_rng_state_all([t.cpu() for t in s["cuda"]])
 
 
 def atomic_torch_save(obj, path: Path):

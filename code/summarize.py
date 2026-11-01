@@ -95,6 +95,16 @@ def main(exp: str):
             if e and l and l < 0.95 * e:
                 flagged = True
                 print(f"  SLOWED DOWN within run: {r['run_id']} late/early speed {l / e:.3f}")
+    for r in runs:
+        # Warm compile = the run did not pay the compile warm-up, so it trained longer
+        # inside the same budget (container reuse, D08). Infrastructure fault -> rerun.
+        warm = (r["config"].get("compile") and r.get("first_step_s") is not None
+                and r["first_step_s"] < 5.0)
+        reused = (r.get("meta") or {}).get("inputs_in_this_container", 1) > 1
+        if warm or reused:
+            flagged = True
+            print(f"  WARM COMPILE / REUSED CONTAINER: {r['run_id']} first step "
+                  f"{r.get('first_step_s')} s -> unequal budget, rerun with --fresh (D08)")
     if not flagged:
         print("  none flagged")
 
