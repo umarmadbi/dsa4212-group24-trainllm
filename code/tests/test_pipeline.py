@@ -183,6 +183,40 @@ def test_refuses_wrong_resume(d: Path, out: Path):
     raise AssertionError("resumed a checkpoint with a different seed")
 
 
+def test_crash_once_then_resume(d: Path, out: Path):
+    """The config hook used for the Modal kill-and-resume test (D07): crash on attempt 1
+    only, so the retry resumes and finishes; the result equals an uninterrupted run."""
+    common = dict(schedule="steps", max_steps=30, budget_s=1e9, ckpt_every_steps=10,
+                  eval_every_frac=10.0)
+    a = run(tiny_cfg(run_id="cont2", **common), 3, str(d), str(out))
+    cfg = tiny_cfg(run_id="crash2", test_crash_once_at_step=25, **common)
+    try:
+        run(cfg, 3, str(d), str(out))
+        raise AssertionError("did not crash on attempt 1")
+    except SystemExit:
+        pass
+    b = run(cfg, 3, str(d), str(out))                    # attempt 2: must not crash again
+    assert b["steps"] == 30 and len(b["attempts"]) == 2
+    assert b["attempts"][1]["resumed_from_step"] == 20
+    assert abs(a["final_val_bpb"] - b["final_val_bpb"]) < 1e-6
+    print(f"  crashed at step 25 on attempt 1, resumed from step 20, final BPB matches")
+
+
+def test_divergence_guard(d: Path, out: Path):
+    """A run whose loss becomes non-finite stops at once, is marked diverged, gets no BPB,
+    and the result is still plain JSON (D07)."""
+    t0 = __import__("time").time()
+    r = run(tiny_cfg(run_id="nan", lr=float("inf"), budget_s=30.0, eval_every_frac=0.5),
+            0, str(d), str(out))
+    took = __import__("time").time() - t0
+    print(f"  diverged at step {r['diverged_at_step']}, stopped after {r['counted_train_s']}s "
+          f"counted ({took:.1f}s wall) of a 30 s budget")
+    assert r["diverged"] is True and r["final_val_bpb"] is None
+    assert r["diverged_at_step"] is not None and r["diverged_at_step"] <= 3
+    assert r["counted_train_s"] < 5.0
+    json.dumps(r)   # (lr=inf in this artificial test, so NaN-free output is not asserted)
+
+
 def test_all_config_files_load():
     """Every real config file loads with correct types (YAML 1.1 reads `1.0e9` as text;
     this bug crashed all 8 E00 benchmark runs on 2026-11-01)."""
@@ -224,6 +258,8 @@ if __name__ == "__main__":
              ("time budget stop + learning curve", test_budget_stop_and_learning, (d, out)),
              ("kill + resume == continuous run", test_resume_matches_continuous, (d, out)),
              ("refuse resume with other seed", test_refuses_wrong_resume, (d, out)),
+             ("crash once (Modal test hook) + resume", test_crash_once_then_resume, (d, out)),
+             ("divergence guard stops a NaN run", test_divergence_guard, (d, out)),
              ("all config files load with correct types", test_all_config_files_load, ()),
              ("no pretrained-weights code path", test_no_pretrained_path, ())]
     failed = 0

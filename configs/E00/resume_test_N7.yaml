@@ -1,0 +1,32 @@
+# E00 pipeline check (preliminary work): kill-and-resume ON MODAL (decision D06 item 2, D07).
+# Purpose: prove that a run killed mid-way on Modal is restarted automatically, resumes
+# from its last checkpoint on the Volume, and keeps its counted time (the budget is never
+# reset). Locally this is already proven bit-exact; this checks the Modal side
+# (automatic retry, Volume commit/reload, new container).
+# How: the process is hard-killed (os._exit) at step 1500 on attempt 1 only, i.e. about
+# 140 s of counted time, after the checkpoints at 60 s and 120 s.
+# Pass if: result has 2 attempts, attempt 2 resumed from the 120 s checkpoint (step < 1500),
+# counted_train_s ends at ~240 s (not ~360 s), and final BPB is in line with a 4-min N7 run.
+run_id: E00-resume_test_N7
+experiment: E00
+corpus: fineweb_edu
+n_layer: 6
+n_head: 4
+n_embd: 256
+block_size: 512
+vocab_size: 8192
+micro_batch: 32
+grad_accum: 2
+lr: 2.0e-03
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 240
+eval_every_frac: 0.1
+ckpt_every_s: 60
+test_crash_once_at_step: 1500
+compile: true
+dtype: bfloat16

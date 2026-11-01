@@ -55,6 +55,9 @@ class Config:
     ckpt_every_s: float = 600.0
     ckpt_every_steps: int = 0              # tests only
     log_every_s: float = 30.0
+    # Simulated preemption (Modal kill-and-resume test only; 0 = off). The container is
+    # killed at this step on the FIRST attempt only, so the automatic retry resumes.
+    test_crash_once_at_step: int = 0
     # system
     compile: bool = True
     dtype: str = "bfloat16"                # "bfloat16" | "float32"

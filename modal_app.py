@@ -83,17 +83,43 @@ def train(config: str, seed: int, meta: dict) -> dict:
     import traceback
     sys.path.insert(0, "/root/code")
     from train import load_config, run
+    import hashlib
+    import os
     cfg = load_config(f"/root/{config}", {})
     cfg.run_id = f"{cfg.run_id}__s{seed}"  # one output directory per (config, seed)
-    meta = dict(meta, gpu_name=gpu_name, config_file=config)
+    meta = dict(meta, gpu_name=gpu_name, config_file=config,
+                config_sha256=hashlib.sha256(Path(f"/root/{config}").read_bytes()).hexdigest())
+
+    def hard_kill():
+        # Simulated preemption: kill the process with no Python cleanup and no extra Volume
+        # commit, like a lost machine. Only checkpoints committed earlier survive.
+        os._exit(1)
     try:
-        return run(cfg, seed, "/data", "/runs", meta=meta, commit_fn=runs_vol.commit)
+        return run(cfg, seed, "/data", "/runs", meta=meta, commit_fn=runs_vol.commit,
+                   crash_fn=hard_kill)
     except Exception:  # noqa: BLE001
         # A Python exception is a bug, not lost hardware: report it instead of raising,
         # so Modal does not retry it (retries are for preemption / container loss only).
         tb = traceback.format_exc()
         print(tb)
         return {"error": tb.strip().splitlines()[-1], "traceback": tb, "run_id": cfg.run_id}
+
+
+@app.function(timeout=5 * 60, volumes={"/runs": runs_vol})
+def archive_run_dir(run_id: str) -> str | None:
+    """For a deliberate fresh rerun (`launch --fresh`): move an existing output directory
+    to /runs/_replaced/<run_id>__<UTC time> so the new run cannot resume from it.
+    Nothing is deleted. Returns the archive path, or None if there was nothing to move."""
+    import shutil
+    import time
+    src = Path("/runs") / run_id
+    if not src.exists():
+        return None
+    dst = Path("/runs/_replaced") / f"{run_id}__{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(src), str(dst))
+    runs_vol.commit()
+    return str(dst)
 
 
 @app.function(cpu=8, memory=32768, timeout=6 * 60 * 60,
@@ -118,17 +144,44 @@ def prepare_data(stage: str = "all", train_mb: float = 400, eval_mb: float = 10,
 # ---------------------------------------------------------------------------
 # Local side: runs on your computer, launches jobs and records their results.
 # ---------------------------------------------------------------------------
+# Everything that is shipped into the container and can change a result.
+CODE_PATHS = ["code", "configs", "modal_app.py", "requirements.txt"]
+
+
 def _git_info() -> dict:
+    """Commit hash, whether the shipped code differs from that commit, and a SHA-256 of
+    the shipped code itself.
+
+    `dirty` includes UNTRACKED files under code/ and configs/ (D07): before this fix,
+    new files that were never committed (e.g. train.py itself) did not count as dirty,
+    so a run could be logged as 'clean' while using code that is in no commit."""
+    import hashlib
+
     def git(*a):
         return subprocess.run(["git", *a], capture_output=True, text=True).stdout.strip()
     commit = git("rev-parse", "HEAD")
-    dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
-    return dict(git_commit=commit, git_dirty=dirty)
+    dirty = bool(git("status", "--porcelain", "--untracked-files=all", "--", *CODE_PATHS))
+    h = hashlib.sha256()
+    files = []
+    for p in CODE_PATHS:
+        pp = Path(p)
+        files += [pp] if pp.is_file() else sorted(f for f in pp.rglob("*") if f.is_file()
+                                                   and "__pycache__" not in f.parts)
+    for f in sorted(files, key=lambda f: f.as_posix()):
+        h.update(f.as_posix().encode()); h.update(b"\0")
+        h.update(f.read_bytes().replace(b"\r\n", b"\n")); h.update(b"\0")
+    return dict(git_commit=commit, git_dirty=dirty, code_sha256=h.hexdigest())
 
 
 def _modal_workspace() -> str:
     out = subprocess.run(["modal", "profile", "current"], capture_output=True, text=True)
     return out.stdout.strip() or "unknown"
+
+
+def _bpb_txt(result: dict) -> str:
+    if result.get("diverged"):
+        return f"DIVERGED at step {result.get('diverged_at_step')}"
+    return f"{result['final_val_bpb']:.4f}"
 
 
 LEDGER_FIELDS = ["run_id", "experiment", "kind", "date_sgt", "member", "modal_workspace",
@@ -147,6 +200,14 @@ def _record(result: dict | None, config: str, seed: int, meta: dict, kind: str,
     if result is not None:
         out = Path("results/runs") / f"{result['run_id']}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
+        if out.exists():
+            # A rerun (--fresh replacement) has the same run_id: keep the old result
+            # (docs/README rule 3: never delete or overwrite a result).
+            old = Path("results/runs/_replaced") / (
+                f"{result['run_id']}__{dt.datetime.now(dt.timezone.utc):%Y%m%dT%H%M%SZ}.json")
+            old.parent.mkdir(parents=True, exist_ok=True)
+            out.rename(old)
+            print(f"kept previous result as {old}")
         out.write_text(json.dumps(result, indent=2, default=str))
         print(f"saved {out}")
     row = dict(
@@ -157,9 +218,13 @@ def _record(result: dict | None, config: str, seed: int, meta: dict, kind: str,
         gpu_name=result["gpu_name"] if result else "", git_commit=commit, config=config,
         seed=seed, counted_train_s=result["counted_train_s"] if result else "",
         wallclock_s=round(wall), tokens_processed=result["tokens_processed"] if result else "",
-        status="completed" if result else "failed",
+        status=("diverged" if result and result.get("diverged")
+                else "completed" if result else "failed"),
         cost_usd=f"~{wall / 3600 * L4_USD_PER_HOUR:.2f}",
-        notes=(f"final val bpb {result['final_val_bpb']:.4f}; attempts {len(result['attempts'])}"
+        notes=((f"final val bpb {_bpb_txt(result)}; attempts {len(result['attempts'])}"
+                + (f"; fresh rerun, old dir archived to {meta['archived_to']}"
+                   if meta.get("archived_to") else "")
+                + (f"; code sha {meta['code_sha256'][:10]}" if meta.get("code_sha256") else ""))
                if result else f"ERROR: {error}"[:300]),
     )
     ledger = Path("results/compute_ledger.csv")
@@ -168,8 +233,15 @@ def _record(result: dict | None, config: str, seed: int, meta: dict, kind: str,
 
 
 @app.local_entrypoint()
-def launch(configs: str, seeds: str = "0", kind: str = "pilot", member: str = "umarmadbi"):
-    """Run every (config, seed) pair in parallel, each on its own L4."""
+def launch(configs: str, seeds: str = "0", kind: str = "pilot", member: str = "umarmadbi",
+           fresh: bool = False, allow_dirty: bool = False):
+    """Run every (config, seed) pair in parallel, each on its own L4.
+
+    A (config, seed) whose output directory already exists on the runs Volume RESUMES from
+    its checkpoint (right after a crash). For a deliberate rerun (e.g. replacing a run on a
+    slow machine) pass --fresh: the old directory is archived first, never deleted.
+    Refuses to launch from code that differs from the last commit unless --allow-dirty
+    (DECLARATIONS section 1: every run launches from a committed version; D06/D07)."""
     import glob as _glob
     cfg_list = []
     for c in (c.strip().replace("\\", "/") for c in configs.split(",") if c.strip()):
@@ -190,12 +262,26 @@ def launch(configs: str, seeds: str = "0", kind: str = "pilot", member: str = "u
     print(f"{len(cfg_list)} config(s) validated locally")
     meta = dict(_git_info(), member=member, modal_workspace=_modal_workspace(), kind=kind)
     if meta["git_dirty"]:
-        print("WARNING: uncommitted changes to tracked files; the ledger marks this run +dirty. "
-              "Final runs must be launched from a clean commit.")
+        if not allow_dirty:
+            raise SystemExit("REFUSING TO LAUNCH: code/, configs/, modal_app.py or "
+                             "requirements.txt differ from the last commit (or have untracked "
+                             "files). Commit first (`git status` shows what), or pass "
+                             "--allow-dirty for a throwaway test; it is then marked +dirty.")
+        print("WARNING: launching uncommitted code (--allow-dirty); the ledger marks it +dirty.")
     sgt = dt.timezone(dt.timedelta(hours=8))
     started = dt.datetime.now(sgt)
     jobs = [(c, s) for c in cfg_list for s in seed_list]
-    calls = [(c, s, train.spawn(c, s, meta)) for c, s in jobs]
+    job_meta = {}
+    for c, s in jobs:
+        jm = dict(meta)
+        if fresh:
+            rid = f"{load_config(c).run_id}__s{s}"
+            archived = archive_run_dir.remote(rid)
+            if archived:
+                print(f"--fresh: archived old {rid} -> {archived}")
+                jm["archived_to"] = archived
+        job_meta[(c, s)] = jm
+    calls = [(c, s, train.spawn(c, s, job_meta[(c, s)])) for c, s in jobs]
     print(f"launched {len(calls)} job(s): " + ", ".join(f"{c}#s{s}" for c, s, _ in calls))
     for c, s, call in calls:
         try:
@@ -204,11 +290,11 @@ def launch(configs: str, seeds: str = "0", kind: str = "pilot", member: str = "u
                 Path("results/failed").mkdir(parents=True, exist_ok=True)
                 Path(f"results/failed/{res['run_id']}.txt").write_text(res["traceback"])
                 raise RuntimeError(res["error"])
-            _record(res, c, s, meta, kind, started)
-            print(f"done {res['run_id']}: final val bpb {res['final_val_bpb']:.4f}, "
+            _record(res, c, s, job_meta[(c, s)], kind, started)
+            print(f"done {res['run_id']}: final val bpb {_bpb_txt(res)}, "
                   f"{res['steady_tokens_per_s']} tokens/s steady")
         except Exception as e:  # noqa: BLE001  (record failed runs too)
-            _record(None, c, s, meta, kind, started, error=repr(e))
+            _record(None, c, s, job_meta[(c, s)], kind, started, error=repr(e))
             print(f"FAILED {c} seed {s}: {e!r}")
 
 
@@ -242,5 +328,5 @@ def recover(run_ids: str, configs: str, seeds: str = "0", kind: str = "benchmark
         started = dt.datetime.fromisoformat(res["attempts"][0]["started_utc"].replace("Z", "+00:00")
                                             ).astimezone(sgt)
         _record(res, c, s, run_meta, kind, started)
-        print(f"recovered {rid}: final val bpb {res['final_val_bpb']:.4f}, "
+        print(f"recovered {rid}: final val bpb {_bpb_txt(res)}, "
               f"{res['steady_tokens_per_s']} tokens/s steady")

@@ -23,6 +23,16 @@ DECLARATIONS.md. Project modifications (each one a declared rule):
   the end. The test split is never touched here (code/evaluate_test.py, later).
 * The evaluated model is the final one (section 6); no best-checkpoint selection.
 
+Added before Phase 1 (decision D07, 2026-11-01):
+* Divergence guard: if the training loss becomes non-finite (NaN/inf) the run stops at
+  once, is marked `diverged`, and gets no BPB (ranked worst). A diverged run would
+  otherwise burn its whole budget producing NaN; LR pilots at the top of a grid can do this.
+* Gradient norm (before clipping) is logged per interval, with the fraction of clipped
+  steps: shows how close a learning rate is to instability, not only whether it diverged.
+* GPU telemetry (SM clock, temperature, power, throttle reasons) is sampled every 30 s
+  by a background thread calling nvidia-smi (CPU only, not on the GPU's critical path),
+  to explain throughput differences between machines or over time (L4 power-throttling).
+
 Run on Modal through modal_app.py, or locally for tests:
     python code/train.py --config configs/x.yaml --seed 0 --data_dir D --out_root O
 """
@@ -37,7 +47,9 @@ import math
 import os
 import platform
 import random
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -137,6 +149,83 @@ def lr_at(cfg: Config, step: int, counted: float, t_warm_end: float | None) -> f
     return min_lr + 0.5 * (cfg.lr - min_lr) * (1.0 + math.cos(math.pi * progress))
 
 
+class GpuTelemetry:
+    """Samples nvidia-smi every `every_s` wall seconds in a daemon thread (CPU side only).
+    Each sample: seconds since this attempt started, training step at that moment,
+    SM clock (MHz), max SM clock, temperature (C), power draw / limit (W), GPU utilisation
+    (%), and the active clock-event (throttle) reason bitmask."""
+
+    QUERY = ("clocks.sm,clocks.max.sm,temperature.gpu,power.draw,power.limit,"
+             "utilization.gpu,{reasons}")
+
+    def __init__(self, samples: list, step_ref: dict, every_s: float = 30.0):
+        self.samples, self.step_ref, self.every_s = samples, step_ref, every_s
+        self._stop = threading.Event()
+        self._t0 = time.time()
+        self._reasons = None
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+
+    def _query(self):
+        for reasons in ([self._reasons] if self._reasons else
+                        ["clocks_event_reasons.active", "clocks_throttle_reasons.active"]):
+            out = subprocess.run(["nvidia-smi", f"--query-gpu={self.QUERY.format(reasons=reasons)}",
+                                  "--format=csv,noheader,nounits"],
+                                 capture_output=True, text=True, timeout=10)
+            if out.returncode == 0 and out.stdout.strip():
+                self._reasons = reasons
+                return [v.strip() for v in out.stdout.strip().splitlines()[0].split(",")]
+        return None
+
+    def _loop(self):
+        while not self._stop.wait(self.every_s):
+            try:
+                v = self._query()
+            except Exception:  # noqa: BLE001  (telemetry must never break a run)
+                v = None
+            if not v:
+                continue
+
+            def num(s):
+                try:
+                    return float(s)
+                except ValueError:
+                    return None
+            self.samples.append(dict(wall_s=round(time.time() - self._t0, 1),
+                                     step=self.step_ref.get("step"),
+                                     sm_mhz=num(v[0]), max_sm_mhz=num(v[1]), temp_c=num(v[2]),
+                                     power_w=num(v[3]), power_limit_w=num(v[4]),
+                                     util_pct=num(v[5]), reasons=v[6]))
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+
+def telemetry_summary(samples: list) -> dict | None:
+    """Median SM clock in the first and last 20 % of samples, max temperature, and how
+    often the power cap was the active clock-limiting reason (bit 0x4 = SW power cap)."""
+    s = [x for x in samples if x.get("sm_mhz")]
+    if len(s) < 2:
+        return None
+    k = max(1, len(s) // 5)
+    med = lambda xs: float(np.median(xs))  # noqa: E731
+    def power_capped(x):
+        try:
+            return bool(int(str(x["reasons"]), 16) & 0x4)
+        except ValueError:
+            return False
+    return dict(n_samples=len(s),
+                sm_mhz_first20=med([x["sm_mhz"] for x in s[:k]]),
+                sm_mhz_last20=med([x["sm_mhz"] for x in s[-k:]]),
+                sm_mhz_max_rated=s[0].get("max_sm_mhz"),
+                temp_c_max=max((x["temp_c"] or 0) for x in s),
+                power_w_median=med([x["power_w"] for x in s if x["power_w"] is not None] or [0]),
+                power_limit_w=s[0].get("power_limit_w"),
+                frac_samples_power_capped=round(sum(power_capped(x) for x in s) / len(s), 3))
+
+
 def rng_state():
     s = dict(python=random.getstate(), numpy=np.random.get_state(),
              torch=torch.get_rng_state())
@@ -165,11 +254,17 @@ def write_json(path: Path, obj):
 
 
 # ---------------------------------------------------------------------------
+def _default_crash():
+    raise SystemExit("simulated preemption (test_crash_once_at_step)")
+
+
 def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None = None,
-        commit_fn=None) -> dict:
-    """Train one run. `commit_fn` persists the output directory (Modal Volume commit)."""
+        commit_fn=None, crash_fn=None) -> dict:
+    """Train one run. `commit_fn` persists the output directory (Modal Volume commit).
+    `crash_fn` is called for a simulated preemption (Modal passes a hard process kill)."""
     meta = dict(meta or {})
     commit_fn = commit_fn or (lambda: None)
+    crash_fn = crash_fn or _default_crash
     device = "cuda" if torch.cuda.is_available() else "cpu"
     data_dir, run_dir = Path(data_dir), Path(out_root) / cfg.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -210,7 +305,8 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
     st = dict(step=0, counted=0.0, tokens=0, t_warm_end=None,
               next_eval=cfg.eval_every_frac * cfg.budget_s, next_ckpt=cfg.ckpt_every_s,
               curve=[], train_log=[], lr_log=[], step_times_first=[], attempts=[],
-              eval_paused_s=0.0, ckpt_paused_s=0.0)
+              eval_paused_s=0.0, ckpt_paused_s=0.0, gpu_telemetry=[], diverged_at_step=None,
+              n_clipped=0)
     if ckpt_path.exists():                       # resume: budget carries over
         ck = torch.load(ckpt_path, map_location=device, weights_only=False)
         if ck["seed"] != seed or ck["config"] != dataclasses.asdict(cfg):
@@ -219,6 +315,8 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
         optimizer.load_state_dict(ck["optimizer"])
         loader.load_state(ck["loader"])
         st = ck["state"]
+        for k, v in (("gpu_telemetry", []), ("diverged_at_step", None), ("n_clipped", 0)):
+            st.setdefault(k, v)                  # checkpoints from older code
         set_rng_state(ck["rng"])
         print(f"RESUMED from step {st['step']}, counted {st['counted']:.1f}s", flush=True)
     st["attempts"].append(dict(started_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -253,13 +351,21 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
     clock = BudgetClock(st["counted"], device)
     if st["step"] == 0 and not st["curve"]:
         curve_point()                           # step-0 point (clock not yet running)
+    telemetry = None
+    if device == "cuda":
+        telemetry = GpuTelemetry(st["gpu_telemetry"], st)
+        telemetry.start()
     model.train()
     clock.start()
     last_log_t, loss_acc, loss_n = clock.now(), 0.0, 0
-    crash_at = int(os.environ.get("CRASH_AT_STEP", "0"))   # tests only
+    gn_acc, gn_max, gn_n, clip_n = 0.0, 0.0, 0, 0
+    crash_at = int(os.environ.get("CRASH_AT_STEP", "0"))   # local tests only
+    crash_once_at = cfg.test_crash_once_at_step if len(st["attempts"]) == 1 else 0
     while True:
         t = clock.now()
         if t >= cfg.budget_s or (cfg.max_steps and st["step"] >= cfg.max_steps):
+            break
+        if st["diverged_at_step"] is not None:
             break
         lr = lr_at(cfg, st["step"], t, st["t_warm_end"])
         for g in optimizer.param_groups:
@@ -273,9 +379,21 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
             with ctx:
                 _, loss = model(x, y)
             (loss / cfg.grad_accum).backward()
-            loss_acc += loss.item(); loss_n += 1
-        if cfg.grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(raw_model.parameters(), cfg.grad_clip)
+            loss_val = loss.item()
+            loss_acc += loss_val; loss_n += 1
+        # Gradient norm before clipping (computed with max_norm=inf when clipping is off).
+        gnorm = torch.nn.utils.clip_grad_norm_(
+            raw_model.parameters(), cfg.grad_clip if cfg.grad_clip > 0 else float("inf")).item()
+        if not (math.isfinite(loss_val) and math.isfinite(gnorm)):
+            # Divergence guard (D07): stop now; the run is ranked worst and gets no BPB.
+            st["diverged_at_step"] = st["step"]
+            optimizer.zero_grad(set_to_none=True)
+            print(f"DIVERGED at step {st['step']} (loss {loss_val}, grad norm {gnorm}); "
+                  f"stopping run", flush=True)
+            break
+        gn_acc += gnorm; gn_max = max(gn_max, gnorm); gn_n += 1
+        if cfg.grad_clip > 0 and gnorm > cfg.grad_clip:
+            clip_n += 1; st["n_clipped"] += 1
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
         st["step"] += 1
@@ -287,14 +405,22 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
             st["t_warm_end"] = now
         if crash_at and st["step"] == crash_at:
             raise SystemExit(f"CRASH_AT_STEP={crash_at} (test)")
+        if crash_once_at and st["step"] == crash_once_at:
+            print(f"SIMULATED PREEMPTION at step {st['step']} (attempt 1)", flush=True)
+            crash_fn()
         if now - last_log_t >= cfg.log_every_s or st["step"] == 1:
             st["train_log"].append(dict(step=st["step"], counted_s=round(now, 2),
                                         tokens=st["tokens"], lr=lr,
                                         train_loss=loss_acc / max(1, loss_n),
+                                        grad_norm_mean=round(gn_acc / max(1, gn_n), 4),
+                                        grad_norm_max=round(gn_max, 4),
+                                        frac_clipped=round(clip_n / max(1, gn_n), 4),
                                         passes=round(loader.passes(), 4)))
             print(f"step {st['step']} t={now:.0f}s lr={lr:.2e} "
-                  f"loss={loss_acc / max(1, loss_n):.4f} tokens={st['tokens']:,}", flush=True)
+                  f"loss={loss_acc / max(1, loss_n):.4f} gnorm={gn_acc / max(1, gn_n):.3f} "
+                  f"tokens={st['tokens']:,}", flush=True)
             last_log_t, loss_acc, loss_n = now, 0.0, 0
+            gn_acc, gn_max, gn_n, clip_n = 0.0, 0.0, 0, 0
         if st["step"] % 50 == 0:
             st["lr_log"].append((st["step"], round(now, 3), lr))
         do_eval = now >= st["next_eval"] and now < cfg.budget_s
@@ -318,14 +444,22 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
             clock.start()
     clock.pause()
     st["counted"] = clock.counted
+    if telemetry:
+        telemetry.stop()
+    diverged = st["diverged_at_step"] is not None
 
     # ---- final evaluation on full validation splits (outside the budget) ----
     model.eval()
-    curve_point()
-    final_val = {c: evaluate_bpb(raw_model, val[c], token_bytes, cfg.block_size, cfg.eval_batch,
-                                 eot_id, device, ctx) for c in cfg.eval_corpora}
-    for c, r in final_val.items():
-        print(f"FINAL val {c}: bpb={r['bpb']:.4f} loss/token={r['loss_per_token']:.4f}", flush=True)
+    if diverged:
+        final_val = {c: dict(bpb=None, diverged=True) for c in cfg.eval_corpora}
+    else:
+        curve_point()
+        final_val = {c: evaluate_bpb(raw_model, val[c], token_bytes, cfg.block_size,
+                                     cfg.eval_batch, eot_id, device, ctx)
+                     for c in cfg.eval_corpora}
+        for c, r in final_val.items():
+            print(f"FINAL val {c}: bpb={r['bpb']:.4f} loss/token={r['loss_per_token']:.4f}",
+                  flush=True)
     torch.save(dict(model=raw_model.state_dict(), config=dataclasses.asdict(cfg), seed=seed),
                run_dir / "final_model.pt")
     save_ckpt()
@@ -335,6 +469,15 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
     mid = [r for r in log if 0.1 * st["counted"] <= r["counted_s"] <= 0.9 * st["counted"]]
     steady_tps = ((mid[-1]["tokens"] - mid[0]["tokens"]) / (mid[-1]["counted_s"] - mid[0]["counted_s"])
                   if len(mid) >= 2 and mid[-1]["counted_s"] > mid[0]["counted_s"] else None)
+
+    def tps_between(a, b):   # tokens/s between fractions a and b of the counted time
+        seg = [r for r in log if a * st["counted"] <= r["counted_s"] <= b * st["counted"]]
+        if len(seg) < 2 or seg[-1]["counted_s"] <= seg[0]["counted_s"]:
+            return None
+        return round((seg[-1]["tokens"] - seg[0]["tokens"])
+                     / (seg[-1]["counted_s"] - seg[0]["counted_s"]), 1)
+    # Throttling check: speed early (10-35 %) vs late (65-90 %) in the same run.
+    tps_early, tps_late = tps_between(0.10, 0.35), tps_between(0.65, 0.90)
     gpu = meta.get("gpu_name") or (torch.cuda.get_device_name(0) if device == "cuda" else "cpu")
     peak = next((v for k, v in PEAK_FLOPS.items() if k in gpu), None)
     result = dict(
@@ -360,9 +503,16 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
         step_times_first=st["step_times_first"],
         peak_memory_gb=(round(torch.cuda.max_memory_allocated() / 1e9, 3)
                         if device == "cuda" else None),
+        steady_tokens_per_s_early=tps_early, steady_tokens_per_s_late=tps_late,
         final_val={c: r for c, r in final_val.items()},
         final_val_bpb=final_val[cfg.eval_corpora[0]]["bpb"],
-        best_curve_bpb_diagnostic=min(p["val_bpb"] for p in st["curve"]),
+        diverged=diverged, diverged_at_step=st["diverged_at_step"],
+        frac_steps_clipped=round(st["n_clipped"] / max(1, st["step"]), 4),
+        best_curve_bpb_diagnostic=min((p["val_bpb"] for p in st["curve"]
+                                       if p["val_bpb"] is not None and
+                                       math.isfinite(p["val_bpb"])), default=None),
+        gpu_telemetry_summary=telemetry_summary(st["gpu_telemetry"]),
+        gpu_telemetry=st["gpu_telemetry"],
         curve=st["curve"], train_log=log, lr_log=st["lr_log"],
     )
     # Plain JSON types only: the result is sent back to a computer without torch installed
@@ -370,8 +520,9 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
     result = json.loads(json.dumps(result, default=str))
     write_json(run_dir / "result.json", result)
     commit_fn()
+    bpb_txt = "DIVERGED" if diverged else f"{result['final_val_bpb']:.4f}"
     print(f"DONE {cfg.run_id}: {st['step']} steps, {st['tokens']:,} tokens, "
-          f"{st['counted']:.1f}s counted, final val bpb {result['final_val_bpb']:.4f}", flush=True)
+          f"{st['counted']:.1f}s counted, final val bpb {bpb_txt}", flush=True)
     return result
 
 
