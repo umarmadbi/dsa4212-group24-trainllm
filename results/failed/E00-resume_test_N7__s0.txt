@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/root/modal_app.py", line 98, in train
+    return run(cfg, seed, "/data", "/runs", meta=meta, commit_fn=runs_vol.commit,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/code/train.py", line 320, in run
+    set_rng_state(ck["rng"])
+  File "/root/code/train.py", line 239, in set_rng_state
+    torch.set_rng_state(s["torch"])
+  File "/usr/local/lib/python3.12/site-packages/torch/random.py", line 36, in set_rng_state
+    default_generator.set_state(new_state)
+TypeError: RNG state must be a torch.ByteTensor
