@@ -51,11 +51,14 @@ whole train file into memory before the clock starts.
 
 ## Using another group member's Modal account
 
-Each Modal account has its own Volume, so a new account must build its own copy of the data first:
+Each Modal account (workspace) has its own Volume, so a new workspace must build its own copy of the data first.
+With your CLI profile pointed at that workspace (`modal profile current` to check):
 
 ```powershell
-modal run modal_app.py::prepare_data --train-mb 9500     # CPU only, ~1 hour, ~$0.60
+modal run modal_app.py::rebuild_data     # CPU only, ~1 hour, ~$0.60; then checks every hash
+modal run modal_app.py::verify_data      # the hash check on its own (a few minutes)
 ```
 
-DECLARATIONS.md requires every token file's hash on that account to match `manifest.json` before any final run
-there. (A command to check this is still to be written.)
+`rebuild_data` uses the sizes **and the exact Hugging Face dataset commits** recorded in `manifest.json` (not the
+datasets' latest versions), then checks that every token file and the tokenizer match `manifest.json`.
+DECLARATIONS.md requires `DATA CHECK PASSED` on a workspace before any run there counts.

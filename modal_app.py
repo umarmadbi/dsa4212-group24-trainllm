@@ -135,7 +135,7 @@ def archive_run_dir(run_id: str) -> str | None:
 @app.function(cpu=8, memory=32768, timeout=6 * 60 * 60,
               volumes={"/data": data_vol})
 def prepare_data(stage: str = "all", train_mb: float = 400, eval_mb: float = 10,
-                 tok_sample_mb: float = 200):
+                 tok_sample_mb: float = 200, pin_revisions: str = ""):
     """CPU-only (cheap): download, split, train tokenizer, tokenize. Phase 0.
 
     Phase 0 sample:  modal run modal_app.py::prepare_data --train-mb 400
@@ -145,10 +145,74 @@ def prepare_data(stage: str = "all", train_mb: float = 400, eval_mb: float = 10,
     subprocess.run(
         ["python", "/root/code/prepare_data.py", "--out=/data", f"--stage={stage}",
          f"--train_mb={train_mb}", f"--eval_mb={eval_mb}",
-         f"--tok_sample_mb={tok_sample_mb}"],
+         f"--tok_sample_mb={tok_sample_mb}", f"--pin_revisions={pin_revisions}"],
         check=True,
     )
     data_vol.commit()
+
+
+@app.function(cpu=4, memory=8192, timeout=60 * 60, volumes={"/data": data_vol})
+def hash_data_files(paths: list[str]) -> dict:
+    """SHA-256 of files on this workspace's data Volume (None if missing)."""
+    import hashlib
+    out = {}
+    for p in paths:
+        f = Path(p)
+        if not f.is_file():
+            out[p] = None
+            continue
+        h = hashlib.sha256()
+        with open(f, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 24), b""):
+                h.update(chunk)
+        out[p] = h.hexdigest()
+    return out
+
+
+def _expected_hashes() -> dict:
+    """Every file training reads, with the hash recorded in data/manifest.json."""
+    m = json.loads(Path("data/manifest.json").read_text(encoding="utf-8"))
+    exp = {"/data/tokenizer/tokenizer.json": m["tokenizer"]["tokenizer_json_sha256"],
+           "/data/tokenizer/token_bytes.npy": m["tokenizer"]["token_bytes_sha256"]}
+    for splits in m["tokens"]["splits"].values():
+        for e in splits.values():
+            exp[e["file"]] = e["sha256"]
+    return exp
+
+
+@app.local_entrypoint()
+def verify_data():
+    """DECLARATIONS 'Running across several Modal accounts': before any final run on a
+    workspace, every token file and the tokenizer on its Volume must match data/manifest.json.
+        modal run modal_app.py::verify_data"""
+    exp = _expected_hashes()
+    got = hash_data_files.remote(sorted(exp))
+    bad = [p for p in exp if got.get(p) != exp[p]]
+    for p in sorted(exp):
+        status = "OK" if p not in bad else ("MISSING" if got.get(p) is None else "MISMATCH")
+        print(f"{status:8s} {p}")
+    print(f"workspace profile: {_modal_workspace()}")
+    if bad:
+        raise SystemExit(f"DATA CHECK FAILED: {len(bad)} of {len(exp)} files differ. "
+                         "Do not run experiments on this workspace.")
+    print(f"DATA CHECK PASSED: all {len(exp)} files match data/manifest.json")
+
+
+@app.local_entrypoint()
+def rebuild_data():
+    """Build this workspace's copy of the data with exactly the settings AND dataset
+    versions recorded in data/manifest.json, then check every hash (D10). For a new
+    group member's workspace. CPU only, ~1 hour, ~$0.60.
+        modal run modal_app.py::rebuild_data"""
+    m = json.loads(Path("data/manifest.json").read_text(encoding="utf-8"))
+    a = m["args"]
+    pins = {c: e["revision"] for c, e in m["corpora"].items()}
+    print(f"workspace profile: {_modal_workspace()}")
+    print(f"rebuilding with train_mb={a['train_mb']} eval_mb={a['eval_mb']} "
+          f"tok_sample_mb={a['tok_sample_mb']}, revisions pinned: {pins}")
+    prepare_data.remote(stage="all", train_mb=a["train_mb"], eval_mb=a["eval_mb"],
+                        tok_sample_mb=a["tok_sample_mb"], pin_revisions=json.dumps(pins))
+    verify_data()
 
 
 # ---------------------------------------------------------------------------

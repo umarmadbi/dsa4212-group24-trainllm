@@ -303,8 +303,13 @@ def stage_split(args) -> None:
 
     # Pass 1: choose eval documents for every corpus (including Wikipedia).
     evals, meta = {}, {}
+    pins = json.loads(args.pin_revisions) if args.pin_revisions else {}
     for corpus, spec in CORPORA.items():
-        rev = resolve_revision(spec["repo"])
+        # Rebuild on another Modal account (D10): use the revision recorded in the original
+        # manifest, NOT the dataset's current main branch, which may have moved since.
+        rev = pins[corpus] if corpus in pins else resolve_revision(spec["repo"])
+        if corpus in pins:
+            log(f"{corpus}: revision pinned from original manifest")
         files = list_files(spec, rev)
         log(f"{corpus}: {spec['repo']}@{rev[:10]}, {len(files)} files under {spec['prefix']}")
         test, val, stats = select_eval(corpus, spec, rev, files, cache_dir, args.seed, eval_bytes)
@@ -515,6 +520,8 @@ def main(argv=None) -> None:
                    help="tokenizer training text per training corpus, MB")
     p.add_argument("--vocab_size", type=int, default=8192)
     p.add_argument("--seed", type=int, default=1234)
+    p.add_argument("--pin_revisions", default="",
+                   help='JSON {corpus: HF commit}; rebuild from these exact dataset versions')
     args = p.parse_args(argv)
     log(f"prepare_data v{SCRIPT_VERSION}: {vars(args)}")
     if args.stage in ("split", "all"):
