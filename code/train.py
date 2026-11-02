@@ -226,6 +226,16 @@ def telemetry_summary(samples: list) -> dict | None:
                 frac_samples_power_capped=round(sum(power_capped(x) for x in s) / len(s), 3))
 
 
+def _peak_rss_gb() -> dict | None:
+    try:
+        import resource
+        return dict(self=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2),
+                    children_max=round(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+                                       / 1e6, 2))
+    except Exception:  # noqa: BLE001  (not available on Windows)
+        return None
+
+
 def rng_state():
     s = dict(python=random.getstate(), numpy=np.random.get_state(),
              torch=torch.get_rng_state())
@@ -507,6 +517,9 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
         step_times_first=st["step_times_first"],
         peak_memory_gb=(round(torch.cuda.max_memory_allocated() / 1e9, 3)
                         if device == "cuda" else None),
+        # Peak host RAM of this process and of its children (torch.compile workers), GB
+        # (Linux ru_maxrss is in KB). Used to size the Modal memory request (D12).
+        peak_host_rss_gb=_peak_rss_gb(),
         steady_tokens_per_s_early=tps_early, steady_tokens_per_s_late=tps_late,
         final_val={c: r for c, r in final_val.items()},
         final_val_bpb=final_val[cfg.eval_corpora[0]]["bpb"],

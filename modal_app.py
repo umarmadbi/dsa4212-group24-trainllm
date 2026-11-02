@@ -294,7 +294,10 @@ def _record(result: dict | None, config: str, seed: int, meta: dict, kind: str,
         wallclock_s=round(wall), tokens_processed=result["tokens_processed"] if result else "",
         status=("diverged" if result and result.get("diverged")
                 else "completed" if result else "failed"),
-        cost_usd=f"~{wall / 3600 * L4_USD_PER_HOUR:.2f}",
+        # A failed run's only timing is time since launch, which includes queueing (one E01 row
+        # logged ~$6 for a job that never started, D12), so no cost is guessed for it.
+        cost_usd=(f"~{wall / 3600 * L4_USD_PER_HOUR:.2f}" if result
+                  else "not estimated (failed; see Modal usage page)"),
         notes=((f"final val bpb {_bpb_txt(result)}; attempts {len(result['attempts'])}"
                 + (f"; fresh rerun, old dir archived to {meta['archived_to']}"
                    if meta.get("archived_to") else "")
