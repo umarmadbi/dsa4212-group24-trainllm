@@ -1,0 +1,83 @@
+# configs/
+
+**One YAML file = one run.** A file holds every setting for that run. Folders are named by experiment number
+(`E00/`, `E01/`, ...). The same config can be run with several seeds (`--seeds 0,1,2`); each seed is its own run.
+
+```powershell
+# from the repo root, after committing
+modal run modal_app.py::launch --configs configs/E01/N26_lr2e-3.yaml --seeds 0 --kind pilot
+```
+
+`launch` checks every config on your laptop before any GPU starts, so a typo fails immediately and costs nothing.
+
+## Naming
+
+The result of `configs/E01/N26_lr2e-3.yaml` with seed 0 is `results/runs/E01-N26_lr2e-3__s0.json`: the config's
+`run_id` plus `__s<seed>`. Model sizes are named by total parameters in millions:
+
+| Name | Layers x width | Parameters | Heads (64 dims each) |
+|---|---|---|---|
+| N7 | 6 x 256 | 7.0M | 4 |
+| N11 | 7 x 320 | 11.4M | 5 |
+| N17 | 8 x 384 | 17.5M | 6 |
+| N26 | 9 x 448 | 25.6M | 7 |
+| N36 | 10 x 512 | 35.9M | 8 |
+| N65 | 12 x 640 | 64.6M | 10 |
+
+(E00 used older names for some of the same sizes: S1 = N7, S2 = N17, S3 = N36, S4 = N65; S5 and S6, 91.6M and
+123.6M, were dropped from the size grid.)
+
+## E00/: pipeline checks (Phase 0, preparation only, never reported as results)
+
+| File | What it is |
+|---|---|
+| `bench_S1.yaml` ... `bench_S6.yaml` | 5-minute speed benchmarks of 6 model sizes on the L4 (tokens per second, memory) |
+| `bench_S3_nocompile.yaml` | S3 without `torch.compile`, to decide whether compile is worth its warm-up time (it is: +20 % speed) |
+| `bench_S1_micro64.yaml` | S1 with a bigger micro-batch, to see if it is faster (it is not) |
+| `resume_test_N7.yaml` | 4-minute run that kills itself once at step 1500, to prove Modal restarts it and it resumes with its counted time kept (passed) |
+
+## E01/: learning rate per model size (Phase 1, preparation only)
+
+| Files | What they are |
+|---|---|
+| `N<size>_lr<rate>.yaml` | 15-minute pilots: 4 learning rates per size, factor 2 apart (N7/N11: 1e-3 to 8e-3; others: 5e-4 to 4e-3). The best per size is used in Phase 2 |
+| `N36_lr8e-3.yaml`, `N11_lr1.6e-2.yaml` | Extra rates beyond the edge of the grid, because that size was best at the edge (declared rule) |
+| `N26_lr{1e-3,2e-3,4e-3}_60min.yaml` | **Horizon check**: the same N26 runs for the full 60 minutes, to check a rate chosen in 15 minutes still wins over an hour |
+
+## Settings (every field a config can have)
+
+Fields left out take the default from `code/config.py`. Unknown fields are rejected.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `run_id` | | Name of the run (`E<NN>-<description>`); must be unique |
+| `experiment` | `E00` | Experiment number, used to group results |
+| `corpus` | `fineweb_edu` | Training text: `fineweb_edu`, `fineweb` or `dclm` |
+| `train_tokens_limit` | 0 | If > 0, train only on the first N tokens (repetition experiment) |
+| `eval_corpora` | `[fineweb_edu]` | Validation splits scored at the end; the first one is the headline number |
+| `curve_corpus`, `curve_tokens` | `fineweb_edu`, 262,144 | Small validation subset scored during training for the learning curve |
+| `n_layer`, `n_head`, `n_embd` | | Model shape (layers, attention heads, width) |
+| `block_size` | 512 | Context length in tokens |
+| `vocab_size` | 8192 | Must match the tokenizer |
+| `dropout`, `bias` | 0.0, false | As in nanoGPT |
+| `micro_batch`, `grad_accum` | | Sequences per forward pass and passes per optimiser step. We use 32 x 2 x 512 = **32,768 tokens per step** for every size |
+| `lr` | | **Peak learning rate** (the thing E01 tunes) |
+| `min_lr_ratio` | 0.1 | Final learning rate = 10 % of the peak |
+| `warmup_steps` | 200 | Linear warm-up steps |
+| `weight_decay`, `beta1`, `beta2`, `grad_clip` | 0.1, 0.9, 0.95, 1.0 | AdamW settings and gradient clipping |
+| `budget_s` | 3600 | **Counted training time in seconds**: 3600 for real runs, 900 for 15-min pilots |
+| `eval_every_frac` | 0.05 | Learning-curve point every 5 % of the budget (clock paused) |
+| `ckpt_every_s` | 600 | Checkpoint every 10 min of counted time (clock paused) |
+| `log_every_s` | 30 | Training log interval |
+| `compile` | true | Use `torch.compile` (its warm-up counts toward the budget) |
+| `dtype` | `bfloat16` | Precision |
+| `eval_batch` | 32 | Windows per batch when scoring |
+| `schedule`, `max_steps`, `ckpt_every_steps`, `test_crash_once_at_step` | | For tests only; leave them out |
+
+## Adding a new experiment
+
+1. Make a folder `configs/E<NN>/` and copy a similar config into it.
+2. Change `run_id` (must start with `E<NN>-`) and `experiment`, then the settings you are testing.
+3. Write numbers with a sign in the exponent or as plain decimals (`1.0e+9` or `1000000000`, not `1.0e9`).
+   The loader converts them anyway, but this is the safe habit.
+4. Commit, then launch.

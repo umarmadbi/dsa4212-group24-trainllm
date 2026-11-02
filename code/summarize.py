@@ -134,6 +134,21 @@ def main(exp: str):
             direction = "lower" if i == 0 else "higher"
             line += f"   <-- AT EDGE OF GRID: run the next {direction} rate (x2 step)"
         print(line)
+        # D09 close-call rule: when the top-2 seed-0 LRs both have >= 3 seeds, the pick is
+        # the lower MEAN BPB over seeds (diverged = inf).
+        allp = [r for r in rs if r["budget_s"] == pilot_budget]
+        by_lr = defaultdict(list)
+        for r in allp:
+            by_lr[r["config"]["lr"]].append(bpb_key(r))
+        multi = {lr: v for lr, v in by_lr.items() if len(v) >= 2}
+        if multi:
+            print("       mean over seeds: " + ", ".join(
+                f"lr {lr:.1e} {statistics.mean(v):.4f} (n={len(v)}, sd {statistics.stdev(v):.4f})"
+                for lr, v in sorted(multi.items()) if all(x < math.inf for x in v)))
+            top2 = [ranked[0]["config"]["lr"], ranked[1]["config"]["lr"]]
+            if all(len(by_lr[lr]) >= 3 for lr in top2):
+                pick = min(top2, key=lambda lr: statistics.mean(by_lr[lr]))
+                print(f"       CLOSE-CALL PICK (D09, mean of >=3 seeds): lr {pick:.1e}")
         others = [r for r in rs if r["seed"] != 0 and r["budget_s"] == pilot_budget]
         if others:
             same = [best] + [r for r in others if r["config"]["lr"] == best["config"]["lr"]]
@@ -149,5 +164,25 @@ def main(exp: str):
                 f"lr {r['config']['lr']:.1e} s{r['seed']} {fmt_bpb(r)}" for r in longer))
 
 
+def pooled_sigma(exp="E01"):
+    """Pooled within-(size, LR) seed sd over all groups with >= 2 finished seeds (D09)."""
+    groups = defaultdict(list)
+    for r in load(exp):
+        if r["budget_s"] == 900 and bpb_key(r) < math.inf:
+            groups[(size_of(r), r["config"]["lr"])].append(r["final_val_bpb"])
+    ss = df = 0
+    for v in groups.values():
+        if len(v) >= 2:
+            m = statistics.mean(v)
+            ss += sum((x - m) ** 2 for x in v); df += len(v) - 1
+    return (math.sqrt(ss / df), df) if df else (None, 0)
+
+
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "E01")
+    exp = sys.argv[1] if len(sys.argv) > 1 else "E01"
+    main(exp)
+    if exp == "E01":
+        sg, df = pooled_sigma(exp)
+        if sg:
+            print(f"\nPooled 15-min seed sd (sigma15) = {sg:.4f} on {df} degrees of freedom; "
+                  f"2.8 x sigma15 = {2.8 * sg:.4f} (single-seed threshold)")
