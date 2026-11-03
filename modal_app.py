@@ -65,7 +65,10 @@ def gpu_check():
 @app.function(
     gpu=GPU,
     cpu=4,
-    memory=32768,  # the train split is loaded into RAM before the clock starts
+    # Host RAM: the train split (~4.9 GB) is loaded before the clock starts. Measured peak of a
+    # 60-min N26 run: 9.6 GB (E01 horizon runs, D12 logging). 16 GB leaves ~65 % headroom and
+    # may fit on more L4 machines than the 32 GB used until E01 (D14). Training is unaffected.
+    memory=16384,
     # A run needs 60 min of counted training plus paused validation/checkpointing,
     # compile and final evaluation, so allow 2 hours.
     timeout=2 * 60 * 60,

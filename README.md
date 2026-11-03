@@ -17,8 +17,8 @@ before any experiment. Read this first.
 | Phase | What it does | Status |
 |---|---|---|
 | 0 | Data, tokenizer, training code, tests, speed benchmarks | Done |
-| 1 | Tune the learning rate for each model size (15-min runs) + a 60-min check | **In progress** |
-| 2 | Main experiment: which model size is best in 60 minutes? | Next |
+| 1 | Tune the learning rate for each model size (15-min runs) + a 60-min check | Done: 2e-3 or 4e-3 for every size (DECLARATIONS Amendments) |
+| 2 | Main experiment: which model size is best in 60 minutes? | **Next** |
 | 3 | Data quality (FineWeb-Edu vs FineWeb vs DCLM) and repetition | Planned |
 | 4 | Training tricks: batch size, schedule, optimiser (pick 2-3) | Planned |
 | 5 | Vocabulary size | If time |
