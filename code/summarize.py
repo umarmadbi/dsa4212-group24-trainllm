@@ -390,8 +390,9 @@ def main_e02():
         # Sizes that get seeds 1,2: the close-call set, plus any P10-unstable size (the flag
         # does not depend on the ranking), so one unlucky unstable run cannot drop a size.
         comp = sorted(set(close) | set(unstable_sizes), key=lambda s: info[s]["P"])
-        final_best = best
+        final_best, outright = best, False
         if len(comp) == 1:
+            outright = True
             print(f"P1 DECIDED at seed 0: {best} beats every other size by > 2.8 sigma60")
         else:
             print(f"P1 step 2: close-call set (within 2.8 sigma60 of the best, at most 3) = {close}"
@@ -408,7 +409,7 @@ def main_e02():
                       + ", ".join(f"{s} {info[s]['m012']:.4f}" for s in comp))
                 if all(g > thr3 for g in gaps.values()):
                     print(f"P1 DECIDED: {final_best} (every gap > 1.6 x pooled sigma60 = {thr3:.4f})")
-                    rng = [final_best]
+                    rng = [final_best]; outright = True
                 else:
                     rng = sorted([final_best] + [s for s, g in gaps.items() if g <= thr3],
                                  key=lambda s: info[s]["P"])
@@ -416,10 +417,14 @@ def main_e02():
                           + ", ".join(f"{s} +{g:.4f}" for s, g in gaps.items()) + f" vs {thr3:.4f})")
                 base = NOISE_SIZE if NOISE_SIZE in rng else final_best
                 print(f"P9 baseline size for Phases 3-6: {base}")
-        if final_best == sizes[0] and EDGE_BELOW not in by:
-            print(f"  <-- P2: best size is the smallest -> run {EDGE_BELOW}")
-        if final_best == sizes[-1] and EDGE_ABOVE not in by:
-            print(f"  <-- P2: best size is the largest -> run {EDGE_ABOVE}")
+        # P2 as declared in D19 (before the N36/N65 seeds): an edge size is run only if the
+        # smallest/largest size wins OUTRIGHT (decided at seed 0, or by > 1.6 pooled sigma).
+        edge = {sizes[0]: EDGE_BELOW, sizes[-1]: EDGE_ABOVE}.get(final_best)
+        if edge and edge not in by:
+            print(f"  <-- P2: best size {final_best} is at the edge of the grid: "
+                  + (f"won outright -> run {edge}" if outright else
+                     f"but only within an optimal range -> {edge} NOT run (D19); "
+                     "report that the optimum may extend beyond the grid"))
 
     # ---- P3: where is the optimum (diagnostic) ----
     ok = [s for s in sizes if info[s]["mall"] < math.inf]
