@@ -44,6 +44,14 @@ The result of `configs/E01/N26_lr2e-3.yaml` with seed 0 is `results/runs/E01-N26
 | `N36_lr8e-3.yaml`, `N11_lr1.6e-2.yaml` | Extra rates beyond the edge of the grid, because that size was best at the edge (declared rule) |
 | `N26_lr{1e-3,2e-3,4e-3}_60min.yaml` | **Horizon check**: the same N26 runs for the full 60 minutes, to check a rate chosen in 15 minutes still wins over an hour |
 
+## E02/: which model size is best in 60 minutes (Phase 2, final runs)
+
+| Files | What they are |
+|---|---|
+| `N7.yaml` ... `N65.yaml` | The 6 sizes, each for the full 60 minutes at its E01 learning rate (N7, N11, N65: 2e-3; N17, N26, N36: 4e-3). Otherwise identical |
+| `N26.yaml` seeds 1-4 | Noise calibration: the same run 4 more times with different seeds (seed 0 is the E01 60-min run, counted here) |
+| `N4.yaml`, `N92.yaml` | Extra sizes beyond the edges, run only if the smallest or largest size wins (their LR is not tuned) |
+
 ## Settings (every field a config can have)
 
 Fields left out take the default from `code/config.py`. Unknown fields are rejected.

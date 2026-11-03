@@ -1,0 +1,25 @@
+# E02 (Phase 2, FINAL RUN under the declared budget): model size vs training time.
+# Size N36, peak LR 4e-3 (E01 pick, DECLARATIONS Amendments 2026-11-03). Everything else
+# identical across sizes. Design and decision rules: docs/experiments/E02 (D17).
+run_id: E02-N36
+experiment: E02
+corpus: fineweb_edu
+n_layer: 10
+n_head: 8
+n_embd: 512
+block_size: 512
+vocab_size: 8192
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 4.0e-03
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 3600              # declared budget: 60 counted minutes
+eval_every_frac: 0.05
+ckpt_every_s: 600           # ~10 min, as declared (section 1)
+compile: true
+dtype: bfloat16

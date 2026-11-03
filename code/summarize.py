@@ -178,8 +178,88 @@ def pooled_sigma(exp="E01"):
     return (math.sqrt(ss / df), df) if df else (None, 0)
 
 
+# ---------------------------------------------------------------------------
+# E02: model size vs training time (D17)
+REUSED_E02 = {"E01-N26_lr4e-3_60min__s0": "N26"}   # D15: counts as E02 N26 seed 0
+
+
+def _quad_fit(xs, ys):
+    """Least-squares y = a x^2 + b x + c (stdlib only). Returns (a, b, c)."""
+    import itertools
+    S = [sum(x ** k for x in xs) for k in range(5)]
+    T = [sum(y * x ** k for x, y in zip(xs, ys)) for k in range(3)]
+    M = [[S[4], S[3], S[2]], [S[3], S[2], S[1]], [S[2], S[1], S[0]]]
+    def det(m):
+        return (m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]))
+    D = det(M)
+    out = []
+    for i in range(3):
+        Mi = [row[:] for row in M]
+        for r in range(3):
+            Mi[r][i] = T[r]
+        out.append(det(Mi) / D)
+    return tuple(out)
+
+
+def main_e02():
+    runs = load("E02")
+    for rid, size in REUSED_E02.items():
+        f = Path("results/runs") / f"{rid}.json"
+        if f.exists():
+            r = json.loads(f.read_text()); r["_size"] = size; r["_reused"] = True
+            runs.append(r)
+    if not runs:
+        print("no E02 results yet"); return
+    by = defaultdict(list)
+    for r in runs:
+        by[r.get("_size") or r["run_id"].split("-", 1)[1].split("__")[0]].append(r)
+    # sigma60: seed sd of the N26 noise-calibration runs
+    n26 = [bpb_key(r) for r in by.get("N26", []) if bpb_key(r) < math.inf]
+    sigma60 = statistics.stdev(n26) if len(n26) >= 2 else None
+    print(f"{'size':5s} {'params':>8s} {'lr':>7s} {'n':>2s} {'tokens':>8s} {'tok/param':>9s} "
+          f"{'PFLOPs':>7s} {'BPB s0':>8s} {'mean BPB':>9s} {'sd':>7s}  notes")
+    rows = []
+    for size, rs in sorted(by.items(), key=lambda kv: kv[1][0]["params"]["total"]):
+        r0 = next((r for r in rs if r["seed"] == 0), rs[0])
+        vals = [bpb_key(r) for r in rs]
+        mean = statistics.mean(vals); sd = statistics.stdev(vals) if len(vals) >= 2 else float("nan")
+        P = r0["params"]["total"]; tok = statistics.mean(r["tokens_processed"] for r in rs)
+        notes = []
+        if any(r.get("_reused") for r in rs): notes.append("s0 = E01 horizon run (D15)")
+        if any(len(r["attempts"]) > 1 for r in rs): notes.append("PREEMPTED+resumed")
+        if any(r.get("meta", {}).get("git_dirty") for r in rs): notes.append("DIRTY CODE")
+        ws = sorted({r.get("meta", {}).get("modal_workspace", "?") for r in rs})
+        notes.append("ws " + "/".join(w.split("/")[0] for w in ws))
+        rows.append((size, P, bpb_key(r0), mean, len(vals)))
+        print(f"{size:5s} {P/1e6:7.1f}M {r0['config']['lr']:7.1e} {len(vals):2d} {tok/1e6:7.0f}M "
+              f"{tok/P:9.1f} {r0['est_train_flops']/1e15:7.0f} {fmt_bpb(r0):>8s} {mean:9.4f} "
+              f"{sd:7.4f}  {'; '.join(notes)}")
+    if sigma60:
+        print(f"\nsigma60 (N26, {len(n26)} seeds) = {sigma60:.4f}; single-seed threshold 2.8 sigma60 = "
+              f"{2.8 * sigma60:.4f}; 3-seed threshold 1.6 sigma60 = {1.6 * sigma60:.4f}")
+    ranked = sorted(rows, key=lambda t: t[3])
+    best, second = ranked[0], ranked[1] if len(ranked) > 1 else None
+    print(f"Best size (lowest mean BPB): {best[0]} {best[3]:.4f}"
+          + (f"; runner-up {second[0]} +{second[3] - best[3]:.4f}" if second else ""))
+    sizes_sorted = [t[0] for t in sorted(rows, key=lambda t: t[1])]
+    if best[0] in (sizes_sorted[0], sizes_sorted[-1]):
+        print("  <-- BEST SIZE IS AT THE EDGE OF THE GRID: edge rule P2 (run N4 or N92)")
+    if len(rows) >= 4:
+        xs = [math.log10(t[1]) for t in rows]; ys = [t[3] for t in rows]
+        a, b, c = _quad_fit(xs, ys)
+        if a > 0:
+            xv = -b / (2 * a)
+            print(f"Parabola in log10(params) through all sizes: optimum ~{10 ** xv / 1e6:.1f}M params, "
+                  f"fitted BPB {a * xv * xv + b * xv + c:.4f} (diagnostic, Chinchilla 'Approach 2' style)")
+
+
 if __name__ == "__main__":
     exp = sys.argv[1] if len(sys.argv) > 1 else "E01"
+    if exp == "E02":
+        main_e02()
+        sys.exit(0)
     main(exp)
     if exp == "E01":
         sg, df = pooled_sigma(exp)
