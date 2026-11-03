@@ -204,18 +204,29 @@ def verify_data():
 @app.local_entrypoint()
 def rebuild_data():
     """Build this workspace's copy of the data with exactly the settings AND dataset
-    versions recorded in data/manifest.json, then check every hash (D10). For a new
-    group member's workspace. CPU only, ~1 hour, ~$0.60.
-        modal run modal_app.py::rebuild_data"""
+    versions recorded in data/manifest.json (D10). For a new group member's workspace.
+    CPU only, ~1 hour, ~$0.60. ALWAYS run it detached, then check the hashes later:
+        modal run --detach modal_app.py::rebuild_data
+        (about an hour later)  modal run modal_app.py::verify_data
+
+    The build is handed off with .spawn() and this command returns at once (D16). The
+    first version waited on it with .remote(); when the laptop lost its connection, Modal
+    cancelled the build even with --detach (2026-11-03, joshuahanrc workspace). Spawned
+    calls survived a dropped connection before (E01 horizon run), so the build no longer
+    depends on the laptop staying online. Without --detach the app would stop as soon as
+    this command returns and cancel the build, so --detach is required."""
     m = json.loads(Path("data/manifest.json").read_text(encoding="utf-8"))
     a = m["args"]
     pins = {c: e["revision"] for c, e in m["corpora"].items()}
     print(f"workspace profile: {_modal_workspace()}")
     print(f"rebuilding with train_mb={a['train_mb']} eval_mb={a['eval_mb']} "
           f"tok_sample_mb={a['tok_sample_mb']}, revisions pinned: {pins}")
-    prepare_data.remote(stage="all", train_mb=a["train_mb"], eval_mb=a["eval_mb"],
-                        tok_sample_mb=a["tok_sample_mb"], pin_revisions=json.dumps(pins))
-    verify_data()
+    call = prepare_data.spawn(stage="all", train_mb=a["train_mb"], eval_mb=a["eval_mb"],
+                              tok_sample_mb=a["tok_sample_mb"],
+                              pin_revisions=json.dumps(pins))
+    print(f"build started on Modal (call {call.object_id}). It runs ~1 hour whether or not "
+          f"this computer stays online, PROVIDED this was launched with --detach.\n"
+          f"Then check it with:  modal run modal_app.py::verify_data")
 
 
 # ---------------------------------------------------------------------------
