@@ -191,7 +191,9 @@ def _quad_fit(xs, ys, ws=None):
     """Weighted least squares y = a x^2 + b x + c (stdlib only). Returns (a, b, c)."""
     ws = ws or [1.0] * len(xs)
     S = [sum(w * x ** k for x, w in zip(xs, ws)) for k in range(5)]
-    T = [sum(w * y * x ** k for x, y, w in zip(xs, ys, ws)) for k in range(3)]
+    # Right-hand side must be ordered like the unknowns (a, b, c) = (x^2, x, 1) coefficients.
+    # Before D19 it was ordered (1, x, x^2), which gave wrong vertices (bug from D17).
+    T = [sum(w * y * x ** k for x, y, w in zip(xs, ys, ws)) for k in (2, 1, 0)]
     M = [[S[4], S[3], S[2]], [S[3], S[2], S[1]], [S[2], S[1], S[0]]]
 
     def det(m):
@@ -437,8 +439,20 @@ def main_e02():
                      if loo else ""))
             if 35.9e6 < Popt < 64.6e6 and REFINE not in by:
                 print(f"  <-- P2b: optimum between N36 and N65 -> tune and run {REFINE} (D18)")
+            if Popt > info[ok[-1]]["P"]:
+                print("  note: the fitted optimum is BEYOND the largest size (extrapolated; weak)")
         else:
             print("\nP3: parabola not convex (no interior optimum in the fitted range)")
+        # Post-hoc diagnostic (D19, added after seeing E02 seed 0): a parabola over a whole decade
+        # of sizes is pulled by the small sizes; Chinchilla fits near the minimum. Local fit through
+        # the best size by mean and its two neighbours. Labelled post hoc; never used for a decision.
+        ib = min(range(len(ok)), key=lambda i: ys[i])
+        if 0 < ib < len(ok) - 1:
+            lv = _vertex(xs[ib - 1:ib + 2], ys[ib - 1:ib + 2])
+            if lv is not None:
+                tl = _interp_loglog(10 ** lv, [info[s]["P"] for s in ok], [info[s]["tok"] for s in ok])
+                print(f"Post-hoc local fit ({ok[ib - 1]}, {ok[ib]}, {ok[ib + 1]}): optimum ~{10 ** lv / 1e6:.1f}M"
+                      + (f", ~{tl / 10 ** lv:.1f} tokens/param" if tl else "") + " (D19, diagnostic only)")
 
     # ---- P7: how does the optimum move from 15 to 60 min? (diagnostic, D18) ----
     e01 = _e01_points()
