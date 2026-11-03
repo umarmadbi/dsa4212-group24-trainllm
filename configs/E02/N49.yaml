@@ -1,0 +1,27 @@
+# E02 REFINEMENT SIZE (rule P2b, D18): launched ONLY if the P3 fitted optimum lies between N36
+# (35.9M) and N65 (64.6M), the widest gap in the grid. 11 x 576 = 48.8M parameters.
+# Its LR is tuned first with the declared protocol (configs/E01/N49_lr*.yaml, 4 x 15 min);
+# the lr below is a PLACEHOLDER and must be set to the pilot pick, committed, before launch.
+run_id: E02-N49
+experiment: E02
+corpus: fineweb_edu
+eval_corpora: [fineweb_edu, fineweb, dclm, wikipedia]   # headline = first (FineWeb-Edu val); others scored after training, outside the budget (D18)
+n_layer: 11
+n_head: 9
+n_embd: 576
+block_size: 512
+vocab_size: 8192
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 2.0e-03                 # PLACEHOLDER: replace with the N49 pilot pick before launch
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 3600              # declared budget: 60 counted minutes
+eval_every_frac: 0.05
+ckpt_every_s: 600           # ~10 min, as declared (section 1)
+compile: true
+dtype: bfloat16

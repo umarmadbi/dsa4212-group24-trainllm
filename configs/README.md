@@ -42,6 +42,7 @@ The result of `configs/E01/N26_lr2e-3.yaml` with seed 0 is `results/runs/E01-N26
 |---|---|
 | `N<size>_lr<rate>.yaml` | 15-minute pilots: 4 learning rates per size, factor 2 apart (N7/N11: 1e-3 to 8e-3; others: 5e-4 to 4e-3). The best per size is used in Phase 2 |
 | `N36_lr8e-3.yaml`, `N11_lr1.6e-2.yaml` | Extra rates beyond the edge of the grid, because that size was best at the edge (declared rule) |
+| `N49_lr{5e-4,1e-3,2e-3,4e-3}.yaml` | LR pilots for the extra size N49, run only if rule P2b of E02 fires |
 | `N26_lr{1e-3,2e-3,4e-3}_60min.yaml` | **Horizon check**: the same N26 runs for the full 60 minutes, to check a rate chosen in 15 minutes still wins over an hour |
 
 ## E02/: which model size is best in 60 minutes (Phase 2, final runs)
@@ -51,6 +52,10 @@ The result of `configs/E01/N26_lr2e-3.yaml` with seed 0 is `results/runs/E01-N26
 | `N7.yaml` ... `N65.yaml` | The 6 sizes, each for the full 60 minutes at its E01 learning rate (N7, N11, N65: 2e-3; N17, N26, N36: 4e-3). Otherwise identical |
 | `N26.yaml` seeds 1-4 | Noise calibration: the same run 4 more times with different seeds (seed 0 is the E01 60-min run, counted here) |
 | `N4.yaml`, `N92.yaml` | Extra sizes beyond the edges, run only if the smallest or largest size wins (their LR is not tuned) |
+| `N49.yaml` | Extra size (11 x 576, 48.8M) between N36 and N65, run only if the fitted optimum falls in that gap (rule P2b). Its LR is tuned first with `configs/E01/N49_lr*.yaml`; the LR in the file is a placeholder until then |
+
+Every E02 config scores the final model on all four validation splits (`eval_corpora`): FineWeb-Edu is the headline
+number used for decisions; FineWeb, DCLM and Wikipedia are extra information, scored after training (outside the budget).
 
 ## Settings (every field a config can have)
 

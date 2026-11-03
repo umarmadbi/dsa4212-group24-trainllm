@@ -413,9 +413,16 @@ def recover(run_ids: str, configs: str, seeds: str = "0", kind: str = "benchmark
             print(f"no result for {rid}: {e!r}")
             continue
         res = json.loads(raw)
-        # commit/meta recorded inside the result are the ones the run actually used
-        run_meta = dict(meta, git_commit=res["meta"].get("git_commit", meta["git_commit"]),
-                        git_dirty=res["meta"].get("git_dirty", meta["git_dirty"]))
+        # The run's own metadata (recorded at launch) wins over this terminal's: commit, dirty
+        # flag, code hash, workspace and member. Before D18 only commit/dirty were taken from
+        # the result, so a run recovered from a terminal on a different Modal profile (or after
+        # new code was written) got the wrong workspace / code hash in its ledger row.
+        run_meta = dict(meta, **{k: res["meta"][k] for k in
+                                 ("git_commit", "git_dirty", "code_sha256", "modal_workspace",
+                                  "member", "archived_to") if k in res.get("meta", {})})
+        if run_meta["modal_workspace"] != meta["modal_workspace"]:
+            print(f"note: {rid} ran on workspace {run_meta['modal_workspace']}, this terminal is "
+                  f"{meta['modal_workspace']} (the run's own workspace is recorded)")
         started = dt.datetime.fromisoformat(res["attempts"][0]["started_utc"].replace("Z", "+00:00")
                                             ).astimezone(sgt)
         _record(res, c, s, run_meta, kind, started)

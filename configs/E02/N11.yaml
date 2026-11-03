@@ -4,6 +4,7 @@
 run_id: E02-N11
 experiment: E02
 corpus: fineweb_edu
+eval_corpora: [fineweb_edu, fineweb, dclm, wikipedia]   # headline = first (FineWeb-Edu val); others scored after training, outside the budget (D18)
 n_layer: 7
 n_head: 5
 n_embd: 320
