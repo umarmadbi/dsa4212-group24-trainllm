@@ -35,10 +35,13 @@ import json
 import time
 from pathlib import Path
 
-import numpy as np
+try:                     # numpy is needed for the check itself, not for merging/printing results
+    import numpy as np   # (the laptop's launch-only environment may not have it; D26)
+except ImportError:      # pragma: no cover
+    np = None
 
 N = 13
-P = np.uint64(0x9E3779B97F4A7C15)       # odd 64-bit multiplier (wrap-around arithmetic mod 2^64)
+P = np.uint64(0x9E3779B97F4A7C15) if np is not None else None  # odd 64-bit multiplier (mod 2^64)
 THRESHOLDS = (0.10, 0.50, 0.80)          # 0.50 is the declared one (D25)
 DECLARED = 0.50
 TRAIN_CORPORA = ("fineweb_edu", "fineweb", "dclm")

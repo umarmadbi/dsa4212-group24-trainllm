@@ -22,7 +22,8 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bpb import evaluate_bpb  # noqa: E402
 from model import GPT, GPTConfig  # noqa: E402
-from train import Config, WindowLoader, lr_at, run, subset_window_ids  # noqa: E402
+from train import (Config, MixLoader, ShiftedSubsetLoader, WindowLoader, lr_at, run,  # noqa: E402
+                   subset_window_ids)
 
 V, EOT = 64, 63
 
@@ -322,6 +323,79 @@ def test_rescore_reproduces_and_excludes(d: Path, out: Path):
     assert abs(evaluate_bpb(model, hand, tb, c["block_size"], 16, EOT, "cpu")["bpb"] - e["excluded"]["bpb"]) < 1e-12
 
 
+def _crash_resume_equal(d: Path, out: Path, tag: str, **kw):
+    """Run continuously and with a simulated preemption at step 25; weights must match."""
+    common = dict(schedule="steps", max_steps=30, budget_s=1e9, ckpt_every_steps=10,
+                  eval_every_frac=10.0, **kw)
+    a = run(tiny_cfg(run_id=f"{tag}_cont", **common), 1, str(d), str(out))
+    os.environ["CRASH_AT_STEP"] = "25"
+    try:
+        run(tiny_cfg(run_id=f"{tag}_crash", **common), 1, str(d), str(out))
+    except SystemExit:
+        pass
+    finally:
+        del os.environ["CRASH_AT_STEP"]
+    b = run(tiny_cfg(run_id=f"{tag}_crash", **common), 1, str(d), str(out))
+    wa = torch.load(out / f"{tag}_cont" / "final_model.pt", weights_only=False)["model"]
+    wb = torch.load(out / f"{tag}_crash" / "final_model.pt", weights_only=False)["model"]
+    assert len(b["attempts"]) == 2 and max((wa[k] - wb[k]).abs().max().item() for k in wa) < 1e-6
+    return a
+
+
+def test_shifted_subset(d: Path, out: Path):
+    """E04 F3 (D26): same subset text, window boundaries move every pass, seams marked by EOT,
+    every stream token a target at most once per pass, resumable."""
+    n_tok, T = 100_001, 10
+    ids = subset_window_ids(n_tok, T, 2_000)
+    toks = (np.arange(n_tok) % 50_000).astype(np.uint32)
+    L = ShiftedSubsetLoader(toks, T, seed=3, window_ids=ids, eot=99_999)
+    assert L.L == len(ids) * (T + 1) and (L.stream[T::T + 1] == 99_999).all()
+    assert np.array_equal(np.sort(L.stream[L.stream != 99_999]), np.sort(toks[(ids * T)[:, None] + np.arange(T)].ravel()))
+    offs, firsts = [], []
+    for ep in range(3):
+        x = L.next_batch(L.n_windows)                      # exactly one pass
+        offs.append(L.offset); firsts.append(x[:, 0].numpy())
+    starts0 = set(firsts[0].tolist()); starts1 = set(firsts[1].tolist())
+    assert starts0 != starts1                             # boundaries differ between passes
+    # coverage: within one pass, stream positions targeted are distinct
+    L2 = ShiftedSubsetLoader(toks, T, seed=3, window_ids=ids, eot=99_999)
+    o = L2.offset
+    pos = ((o + L2._perm * T)[:, None] + np.arange(1, T + 1)) % L2.L
+    assert len(np.unique(pos)) == pos.size >= L2.L - T
+    s = L2.state(); L2.next_batch(5); L2.load_state(s)
+    assert L2.offset == o
+    r = _crash_resume_equal(d, out, "shift", train_subset_tokens=3_200, train_subset_shift=True)
+    assert r["train_subset"]["shifted_windows"] and r["unique_train_tokens"] == 3_200 // 32 * 33
+
+
+def test_corpus_mix(d: Path, out: Path):
+    """E03 R8 (D26): batches mix corpora in the declared token shares (exact to one window), rows
+    come from each corpus's random pool, and a mixed run resumes exactly."""
+    rng = np.random.default_rng(9)
+    p = d / "tokens" / "dclm" / "train.bin"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    rng.integers(0, EOT, 50_000).astype(np.uint16).tofile(p)
+    pools = [np.full((50, 5), 1), np.full((30, 5), 2)]
+    M = MixLoader(pools, [0.6, 0.4], seed=0)
+    for n in (1, 7, 64, 333):
+        x = M.next_batch(n)
+    drawn = M.state()["drawn"]
+    tot = sum(drawn)
+    assert abs(drawn[0] - 0.6 * tot) <= 1 and abs(drawn[1] - 0.4 * tot) <= 1
+    a = _crash_resume_equal(d, out, "mix", corpus="mix", corpus_mix=["fineweb_edu=0.6", "dclm=0.4"],
+                            mix_pool_tokens=20_000)
+    cm = a["corpus_mix"]
+    assert [c["corpus"] for c in cm["corpora"]] == ["fineweb_edu", "dclm"]
+    assert abs(cm["realised_share"][0] - 0.6) < 0.01
+    for bad in (dict(corpus="fineweb_edu", corpus_mix=["fineweb_edu=0.6", "dclm=0.4"]),
+                dict(corpus="mix", corpus_mix=["fineweb_edu=0.7", "dclm=0.4"])):
+        try:
+            run(tiny_cfg(run_id="badmix", schedule="steps", max_steps=2, budget_s=1e9, **bad), 0, str(d), str(out))
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted {bad}")
+
+
 if __name__ == "__main__":
     tmp = Path(tempfile.mkdtemp())
     d, out = tmp / "data", tmp / "runs"
@@ -337,6 +411,8 @@ if __name__ == "__main__":
              ("crash once (Modal test hook) + resume", test_crash_once_then_resume, (d, out)),
              ("divergence guard stops a NaN run", test_divergence_guard, (d, out)),
              ("random nested training subsets (E04)", test_random_nested_subsets, (d, out)),
+             ("shifted windows per pass (E04 F3)", test_shifted_subset, (d, out)),
+             ("corpus mixture: shares, pools, resume (E03 R8)", test_corpus_mix, (d, out)),
              ("13-gram contamination check = brute force (E03 R3)", test_contamination_check, ()),
              ("rescore reproduces stored BPB; document removal", test_rescore_reproduces_and_excludes, (d, out)),
              ("all config files load with correct types", test_all_config_files_load, ()),

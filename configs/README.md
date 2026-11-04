@@ -63,12 +63,15 @@ number used for decisions; FineWeb, DCLM and Wikipedia are extra information, sc
 |---|---|
 | `N49_fineweb.yaml`, `N49_dclm.yaml` | The baseline size N49 for 60 minutes on raw FineWeb or on DCLM instead of FineWeb-Edu (seeds 0-2). The FineWeb-Edu arm is `configs/E02/N49.yaml` (its runs are reused). Judged on the average over all four validation sets |
 | `N49_{fineweb,dclm}_lr{2e-3,4e-3}_15min.yaml` | Learning-rate check (rule R6, D25): 15-minute pilots, seed 0. N49's learning rate was tuned on FineWeb-Edu only; these check that 2e-3 is not clearly worse than 4e-3 on the other two corpora. Preliminary work (`--kind pilot`), not part of the arms |
+| `N49_mix_fwe60_dclm40.yaml` | Follow-up R8 (D26): N49 trained on a 60/40 mix of FineWeb-Edu and DCLM (by tokens), seeds 0-2. Each corpus draws from a 1B-token random pool. Judged like the other arms |
 
 ## E04/: repetition (Phase 3b, final runs)
 
 | Files | What they are |
 |---|---|
 | `N49_rep2.yaml` ... `N49_rep32.yaml` | N49 for 60 minutes on a small random slice of FineWeb-Edu, sized so the hour reads it about 2, 4, 8, 16 or 32 times. Compared with N49 on unique data |
+| `N17_U36M.yaml`, `N26_U36M.yaml`, `N65_U36M.yaml` | Follow-up F2 (D26): other model sizes on the same 36.25M-token subset as `N49_rep8.yaml`. Which size is best when unique data is limited? Seed 0 |
+| `N49_rep8_shift.yaml` | Follow-up F3 (D26): as `N49_rep8.yaml`, but the window boundaries move every pass (`train_subset_shift`). Does showing identical samples every pass cause the damage? Seed 0 |
 
 ## Settings (every field a config can have)
 
@@ -81,6 +84,9 @@ Fields left out take the default from `code/config.py`. Unknown fields are rejec
 | `corpus` | `fineweb_edu` | Training text: `fineweb_edu`, `fineweb` or `dclm` |
 | `train_tokens_limit` | 0 | If > 0, train only on the FIRST N tokens in file order (not a random sample; not used for results) |
 | `train_subset_tokens` | 0 | If > 0, train on a random nested subset of about N tokens (whole windows, fixed key 1234): the repetition experiment E04 |
+| `train_subset_shift` | false | With `train_subset_tokens`: move the window boundaries every pass (E04 F3, D26) |
+| `corpus_mix` | [] | Mix corpora by token share, e.g. `["fineweb_edu=0.6", "dclm=0.4"]`; needs `corpus: mix` (E03 mixture, D26) |
+| `mix_pool_tokens` | 1,000,000,000 | Size of each corpus's random pool in a mixture |
 | `eval_corpora` | `[fineweb_edu]` | Validation splits scored at the end; the first one is the headline number |
 | `curve_corpus`, `curve_tokens` | `fineweb_edu`, 262,144 | Small validation subset scored during training for the learning curve |
 | `n_layer`, `n_head`, `n_embd` | | Model shape (layers, attention heads, width) |

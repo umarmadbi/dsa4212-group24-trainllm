@@ -1,0 +1,113 @@
+{
+ "run_id": "E02-N49__s0",
+ "seed": 0,
+ "device": "cuda",
+ "sets": {
+  "fineweb_edu": {
+   "full": {
+    "bpb": 1.1936046400211502,
+    "loss_per_token": 3.1986462369549886,
+    "scored_tokens": 2586692,
+    "scored_bytes": 10000575,
+    "eot_targets_excluded": 1980,
+    "bytes_per_token": 3.866163810766802,
+    "windows": 5056,
+    "context": 512
+   },
+   "stored_bpb": 1.1936046400211502,
+   "diff_vs_stored": 0.0,
+   "excluded": {
+    "bpb": 1.1959348447741263,
+    "loss_per_token": 3.207400372487744,
+    "scored_tokens": 2483335,
+    "scored_bytes": 9608498,
+    "eot_targets_excluded": 1913,
+    "bytes_per_token": 3.869191228730719,
+    "windows": 4854,
+    "context": 512,
+    "docs_kept": 1914,
+    "docs_removed": 67
+   }
+  },
+  "fineweb": {
+   "full": {
+    "bpb": 1.3844972209213198,
+    "loss_per_token": 3.604250545903992,
+    "scored_tokens": 2663440,
+    "scored_bytes": 10003232,
+    "eot_targets_excluded": 3056,
+    "bytes_per_token": 3.755756465323041,
+    "windows": 5208,
+    "context": 512
+   },
+   "stored_bpb": 1.3844972209213198,
+   "diff_vs_stored": 0.0,
+   "excluded": {
+    "bpb": 1.3856355373565163,
+    "loss_per_token": 3.6060205968122823,
+    "scored_tokens": 2636350,
+    "scored_bytes": 9898213,
+    "eot_targets_excluded": 3010,
+    "bytes_per_token": 3.754514006106928,
+    "windows": 5155,
+    "context": 512,
+    "docs_kept": 3011,
+    "docs_removed": 46
+   }
+  },
+  "dclm": {
+   "full": {
+    "bpb": 1.5413287491660141,
+    "loss_per_token": 3.8807104402649113,
+    "scored_tokens": 2755729,
+    "scored_bytes": 10009837,
+    "eot_targets_excluded": 1903,
+    "bytes_per_token": 3.632373502619452,
+    "windows": 5386,
+    "context": 512
+   },
+   "stored_bpb": 1.5413287491660141,
+   "diff_vs_stored": 0.0,
+   "excluded": {
+    "bpb": 1.5423806761424887,
+    "loss_per_token": 3.882709310368344,
+    "scored_tokens": 2736297,
+    "scored_bytes": 9937590,
+    "eot_targets_excluded": 1879,
+    "bytes_per_token": 3.6317658499790046,
+    "windows": 5348,
+    "context": 512,
+    "docs_kept": 1880,
+    "docs_removed": 24
+   }
+  },
+  "wikipedia": {
+   "full": {
+    "bpb": 1.46480603307775,
+    "loss_per_token": 3.389487201776668,
+    "scored_tokens": 2995101,
+    "scored_bytes": 9998616,
+    "eot_targets_excluded": 3171,
+    "bytes_per_token": 3.3383234822465084,
+    "windows": 5856,
+    "context": 512
+   },
+   "stored_bpb": 1.46480603307775,
+   "diff_vs_stored": 0.0,
+   "excluded": {
+    "bpb": 1.4672041153530524,
+    "loss_per_token": 3.391264847431472,
+    "scored_tokens": 2978213,
+    "scored_bytes": 9931194,
+    "eot_targets_excluded": 3163,
+    "bytes_per_token": 3.334615086295037,
+    "windows": 5823,
+    "context": 512,
+    "docs_kept": 3165,
+    "docs_removed": 8
+   }
+  }
+ },
+ "gpu_name": "NVIDIA L4",
+ "tag": "nocontam"
+}

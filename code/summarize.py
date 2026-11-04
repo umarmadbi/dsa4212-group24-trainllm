@@ -654,6 +654,14 @@ def main_e03():
             oth = [statistics.mean(_set_bpb(r, a) for r in arms[b]) for b in arms if b != a]
             if oth:
                 print(f"    {a:12s} {own - statistics.mean(oth):+.4f}")
+    if "mix" in arms and len(arms["mix"]) >= 1:
+        mx = arms["mix"]
+        fwe_mix = statistics.mean(_set_bpb(r, "fineweb_edu") for r in mx)
+        fwe_arm = statistics.mean(_set_bpb(r, "fineweb_edu") for r in arms["fineweb_edu"])
+        sh = [r.get("corpus_mix", {}).get("realised_share") for r in mx]
+        print(f"\nR8 mixture (D26): FineWeb-Edu val {fwe_mix:.4f} vs FineWeb-Edu arm {fwe_arm:.4f} "
+              f"({fwe_mix - fwe_arm:+.4f}; 3-seed noise scale 1.6 x sigma60 = {1.6 * SIGMA_FWE:.4f}); "
+              f"realised token shares {sh}")
     # ---- R6 (declared D25): LR fairness pilots (15 min, seed 0, 2e-3 vs 4e-3 per corpus) ----
     print(f"\nR6 (LR check, 15-min pilots, seed 0): is 2e-3 (tuned on FineWeb-Edu) also not clearly "
           f"worse than 4e-3 on the other corpora? Inconsistent if 4e-3 is lower on the corpus's own val "
@@ -745,6 +753,36 @@ def _k_of(r):
     return round(290_000_000 / r["config"]["train_subset_tokens"])
 
 
+def _e04_followups(follow, byk, ref):
+    """D26 follow-ups (rules fixed before their runs): F2 model size on the k = 8 subset (36.25M unique
+    tokens), F3 shifted windows at k = 8. Each is single seed vs E04-N49_rep8 seed 0 (single vs single:
+    2 x sigma60 x sqrt(2) = 2.8 sigma60)."""
+    thr = 2 * SIGMA_FWE * math.sqrt(2)
+    base = next((r for r in byk.get(8, []) if r["seed"] == 0), None)
+    if base is None:
+        print("\nFollow-ups: waiting for E04-N49_rep8 seed 0"); return
+    e02 = defaultdict(list)
+    for r in load("E02"):
+        e02[r["run_id"].split("-", 1)[1].split("__")[0]].append(bpb_key(r))
+    b = bpb_key(base)
+    print(f"\nFollow-ups (D26), all on the k = 8 subset (36.25M unique tokens), seed 0; reference E04-N49_rep8 s0 "
+          f"{b:.4f}; difference real if > 2.8 sigma60 = {thr:.4f}")
+    print(f"  {'run':22s} {'size':>5s} {'passes':>6s} {'FWE BPB':>8s} {'vs N49 k8':>9s} {'verdict':>14s} "
+          f"{'unique-data':>11s} {'cost of limit':>13s} {'gap-ref':>8s} {'best curve@passes':>18s}  checks")
+    for r in sorted(follow, key=lambda r: r["params"]["total"]):
+        size = size_of(r) if not r["config"].get("train_subset_shift") else "N49"
+        d = bpb_key(r) - b
+        v = "BETTER" if d < -thr else ("WORSE" if d > thr else "inconclusive")
+        uq = statistics.mean(e02[size]) if e02.get(size) else float("nan")
+        best = min(r["curve"], key=lambda x: x["val_bpb"]) if r.get("curve") else None
+        bp = f"{best['val_bpb']:.4f}@{best['tokens'] / r['unique_train_tokens']:.1f}" if best else "-"
+        print(f"  {r['run_id']:22s} {size:>5s} {r['passes_over_data']:6.2f} {fmt_bpb(r):>8s} {d:+9.4f} {v:>14s} "
+              f"{uq:11.4f} {bpb_key(r) - uq:+13.4f} {_train_val_gap(r) - _train_val_gap(base):+8.4f} {bp:>18s}  "
+              + "; ".join(_run_checks(r, ref)[1:]))
+    print("  'cost of limit' = this run minus the same size's unique-data E02 mean (how much the 36M-token limit hurts "
+          "that size); gap-ref here = train-val gap minus N49 k=8's.")
+
+
 def main_e04():
     ref = _pilot_reference()
     base = _load_ids(BASE_RUNS)
@@ -762,7 +800,9 @@ def main_e04():
           f"> 2 x sigma x sqrt(1+1/3) = {thr1:.4f}; with 3 seeds (R2) by > 1.6 x sigma = {thr3:.4f}")
     print(f"{'run':20s} {'k':>3s} {'s':>1s} {'unique':>7s} {'passes':>6s} {'FWE BPB':>8s} {'delta':>8s} "
           f"{'d(speed)':>8s} {'d AVG4':>8s} {'gap-ref':>8s} {'fin-best':>8s}  checks")
-    rows = [r for r in load("E04") if r["budget_s"] == FINAL_S]
+    allr = [r for r in load("E04") if r["budget_s"] == FINAL_S]
+    rows = [r for r in allr if r["run_id"].startswith("E04-N49_rep") and not r["config"].get("train_subset_shift")]
+    follow = [r for r in allr if r not in rows]
     byk = defaultdict(list)
     for r in sorted(rows, key=lambda r: (_k_of(r), r["seed"])):
         k = _k_of(r)
@@ -779,6 +819,8 @@ def main_e04():
           f"{beta if beta is None else round(beta, 4)} from E02, residual sd {sig_adj and round(sig_adj, 4)}, {df_adj} df).")
     print("  gap-ref = (val loss - train loss, last 5 %) minus the reference's: > 0 = memorising the repeated text.")
     print("  fin-best > 0 = the 1 MB validation curve went UP before the end (overfitting sign).")
+    if follow:
+        _e04_followups(follow, byk, ref)
     # ---- R1 seed-0 verdicts and R2 bracket (D25: robust to non-monotonic results) ----
     s0 = {k: next((r for r in v if r["seed"] == 0), None) for k, v in byk.items()}
     miss = [k for k in E04_KS if s0.get(k) is None]

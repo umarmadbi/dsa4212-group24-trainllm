@@ -30,6 +30,12 @@ class Config:
     # same for every run and seed), so every smaller subset is contained in every larger one
     # and each subset is a uniform sample of the whole train split.
     train_subset_tokens: int = 0
+    # E04 follow-up F3 (D26): with a subset, move the window boundaries every pass (ShiftedSubsetLoader)
+    train_subset_shift: bool = False
+    # E03 follow-up R8 (D26): mix corpora by token share, e.g. ["fineweb_edu=0.6", "dclm=0.4"];
+    # needs corpus: mix. Each corpus contributes a random pool of mix_pool_tokens (nested-subset key).
+    corpus_mix: list = field(default_factory=list)
+    mix_pool_tokens: int = 1_000_000_000
     eval_corpora: list = field(default_factory=lambda: ["fineweb_edu"])  # full val at the end
     curve_corpus: str = "fineweb_edu"      # fixed subset scored during training
     curve_tokens: int = 262_144            # ~1 MB of FineWeb-Edu text at 3.87 bytes/token

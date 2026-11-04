@@ -157,6 +157,130 @@ class WindowLoader:
         self._perm = self._make_perm(self.epoch)
 
 
+class ShiftedSubsetLoader:
+    """E04 follow-up F3 (D26): the same random subset as WindowLoader(window_ids=...), but the window
+    BOUNDARIES move every pass, so the model does not see the identical (context, target) samples
+    again (standard pipelines re-cut the text each epoch; ours repeated exact windows).
+
+    The subset's windows (T tokens each, in file order) are joined into one stream with an EOT after
+    each, marking the seam where two non-adjacent pieces of text meet (the same signal as a document
+    boundary). Each pass draws a random offset o (from (seed, pass)) and cuts the circular stream into
+    windows of T+1 tokens starting at o, o+T, o+2T, ...; window order is shuffled per pass. Every token
+    of the stream is a target at most once per pass (all but < T per pass). The stream is ~1/T longer
+    than the subset because of the EOT seams (0.2 % at T = 512)."""
+
+    def __init__(self, tokens: np.ndarray, T: int, seed: int, window_ids, eot: int):
+        ids = np.asarray(window_ids, dtype=np.int64)
+        body = tokens[(ids * T)[:, None] + np.arange(T)]                       # (m, T)
+        self.stream = np.concatenate([body, np.full((len(ids), 1), eot, dtype=tokens.dtype)],
+                                     axis=1).reshape(-1)
+        self.T, self.seed, self.L = T, seed, len(self.stream)
+        self.n_windows = self.L // T
+        self.epoch, self.pos = 0, 0
+        self._set_epoch(0)
+
+    def _set_epoch(self, epoch):
+        rng = np.random.default_rng([self.seed, epoch, 7])
+        self.offset = int(rng.integers(0, self.L))
+        self._perm = rng.permutation(self.n_windows)
+
+    def next_batch(self, B: int) -> torch.Tensor:
+        idx = []
+        while len(idx) < B:
+            take = min(B - len(idx), self.n_windows - self.pos)
+            idx.extend((self.offset + self._perm[self.pos:self.pos + take] * self.T).tolist())
+            self.pos += take
+            if self.pos == self.n_windows:
+                self.epoch += 1
+                self.pos = 0
+                self._set_epoch(self.epoch)
+        starts = np.asarray(idx, dtype=np.int64)
+        pos = (starts[:, None] + np.arange(self.T + 1)) % self.L
+        return torch.from_numpy(self.stream[pos].astype(np.int64))
+
+    def passes(self) -> float:
+        return self.epoch + self.pos / self.n_windows
+
+    def state(self):
+        return dict(epoch=self.epoch, pos=self.pos)
+
+    def load_state(self, s):
+        self.epoch, self.pos = s["epoch"], s["pos"]
+        self._set_epoch(self.epoch)
+
+
+def parse_mix(items) -> list[tuple[str, float]]:
+    """["fineweb_edu=0.6", "dclm=0.4"] -> [("fineweb_edu", 0.6), ("dclm", 0.4)]; shares sum to 1."""
+    out = []
+    for it in items:
+        name, _, share = str(it).partition("=")
+        out.append((name.strip(), float(share)))
+    if len(out) < 2 or any(w <= 0 for _, w in out) or abs(sum(w for _, w in out) - 1) > 1e-9:
+        raise ValueError(f"corpus_mix needs >= 2 corpora with positive shares summing to 1: {items}")
+    return out
+
+
+def gather_windows(tokens: np.ndarray, T: int, ids: np.ndarray, chunk: int = 200_000) -> np.ndarray:
+    """Rows tokens[w*T : w*T+T+1] for every window id (2-D, read in chunks; works on a memmap)."""
+    out = np.empty((len(ids), T + 1), dtype=np.uint16)
+    off = np.arange(T + 1)
+    for i in range(0, len(ids), chunk):
+        out[i:i + chunk] = tokens[(ids[i:i + chunk] * T)[:, None] + off]
+    return out
+
+
+class MixLoader:
+    """E03 follow-up R8 (D26): training batches mixed from several corpora in fixed token shares.
+
+    Each corpus contributes a POOL: a uniform random set of its windows (the nested-subset
+    permutation, key 1234) of `pool_tokens` tokens, loaded into RAM before the clock starts (the full
+    splits of two corpora would not fit the 16 GB container). The pool is several times larger than
+    what an hour reads, so nothing repeats, as in the single-corpus arms. Every window slot goes to the
+    corpus furthest below its target share (deterministic, exact to within one window); within a
+    corpus, windows are read in a shuffled pass seeded by (seed, corpus index, pass)."""
+
+    def __init__(self, pools: list, shares: list, seed: int):
+        self.pools, self.shares, self.seed = pools, np.asarray(shares, float), seed
+        self.n = len(pools)
+        self.drawn = np.zeros(self.n, dtype=np.int64)
+        self.epoch = [0] * self.n
+        self.pos = [0] * self.n
+        self._perm = [self._make_perm(c, 0) for c in range(self.n)]
+        self.n_windows = sum(len(p) for p in pools)
+
+    def _make_perm(self, c, epoch):
+        return np.random.default_rng([self.seed, 1000 + c, epoch]).permutation(len(self.pools[c]))
+
+    def _next_row(self, c):
+        row = self.pools[c][self._perm[c][self.pos[c]]]
+        self.pos[c] += 1
+        if self.pos[c] == len(self.pools[c]):
+            self.epoch[c] += 1
+            self.pos[c] = 0
+            self._perm[c] = self._make_perm(c, self.epoch[c])
+        return row
+
+    def next_batch(self, B: int) -> torch.Tensor:
+        rows = []
+        for _ in range(B):
+            total = self.drawn.sum() + 1
+            c = int(np.argmax(self.shares * total - self.drawn))
+            rows.append(self._next_row(c))
+            self.drawn[c] += 1
+        return torch.from_numpy(np.stack(rows).astype(np.int64))
+
+    def passes(self) -> float:
+        return float(max(self.epoch[c] + self.pos[c] / len(self.pools[c]) for c in range(self.n)))
+
+    def state(self):
+        return dict(drawn=self.drawn.tolist(), epoch=list(self.epoch), pos=list(self.pos))
+
+    def load_state(self, s):
+        self.drawn = np.asarray(s["drawn"], dtype=np.int64)
+        self.epoch, self.pos = list(s["epoch"]), list(s["pos"])
+        self._perm = [self._make_perm(c, self.epoch[c]) for c in range(self.n)]
+
+
 def lr_at(cfg: Config, step: int, counted: float, t_warm_end: float | None) -> float:
     if step < cfg.warmup_steps:
         return cfg.lr * (step + 1) / cfg.warmup_steps
@@ -319,8 +443,23 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
         raise ValueError(f"tokenizer vocab {tmeta['vocab_size']} != config {cfg.vocab_size}")
     eot_id = tmeta["eot_id"]
     token_bytes = np.load(data_dir / "tokenizer" / "token_bytes.npy")
-    train_tokens = np.fromfile(data_dir / "tokens" / cfg.corpus / "train.bin", dtype=np.uint16)
-    train_tokens_available = len(train_tokens)
+    mix = parse_mix(cfg.corpus_mix) if cfg.corpus_mix else None
+    if mix:                                     # E03 R8 mixture (D26): pools, not full splits
+        if cfg.corpus != "mix" or cfg.train_tokens_limit or cfg.train_subset_tokens:
+            raise ValueError("corpus_mix needs corpus: mix and no train subset/limit")
+        pools, mix_info = [], []
+        for name, share in mix:
+            mm = np.memmap(data_dir / "tokens" / name / "train.bin", dtype=np.uint16, mode="r")
+            ids = subset_window_ids(len(mm), cfg.block_size, cfg.mix_pool_tokens)
+            pools.append(gather_windows(mm, cfg.block_size, ids))
+            mix_info.append(dict(corpus=name, share=share, pool_windows=int(len(ids)),
+                                 split_tokens=int(len(mm)), first_window_ids=[int(x) for x in ids[:5]]))
+            del mm
+        train_tokens = np.zeros(1, dtype=np.uint16)          # unused in mix mode
+        train_tokens_available = sum(m["split_tokens"] for m in mix_info)
+    else:
+        train_tokens = np.fromfile(data_dir / "tokens" / cfg.corpus / "train.bin", dtype=np.uint16)
+        train_tokens_available = len(train_tokens)
     if cfg.train_tokens_limit:
         if cfg.train_tokens_limit > len(train_tokens):
             raise ValueError("train_tokens_limit larger than the train split")
@@ -341,9 +480,18 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
                           dropout=cfg.dropout, bias=cfg.bias)).to(device)
     optimizer = model.configure_optimizers(cfg.weight_decay, cfg.lr, (cfg.beta1, cfg.beta2),
                                            device)
-    loader = WindowLoader(train_tokens, cfg.block_size, seed, window_ids)
-    # distinct training tokens available (unchanged meaning for full-split runs)
-    unique_tokens = len(train_tokens) if window_ids is None else loader.n_windows * cfg.block_size
+    if mix:
+        loader = MixLoader(pools, [w for _, w in mix], seed)
+        unique_tokens = loader.n_windows * cfg.block_size    # pooled windows (none repeats in 60 min)
+    elif cfg.train_subset_shift:
+        if window_ids is None:
+            raise ValueError("train_subset_shift needs train_subset_tokens")
+        loader = ShiftedSubsetLoader(train_tokens, cfg.block_size, seed, window_ids, eot_id)
+        unique_tokens = loader.L                             # subset text + one EOT per seam
+    else:
+        loader = WindowLoader(train_tokens, cfg.block_size, seed, window_ids)
+        # distinct training tokens available (unchanged meaning for full-split runs)
+        unique_tokens = len(train_tokens) if window_ids is None else loader.n_windows * cfg.block_size
 
     st = dict(step=0, counted=0.0, tokens=0, t_warm_end=None,
               next_eval=cfg.eval_every_frac * cfg.budget_s, next_ckpt=cfg.ckpt_every_s,
@@ -535,9 +683,16 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
         attempts=st["attempts"], eval_paused_s=round(st["eval_paused_s"], 1),
         ckpt_paused_s=round(st["ckpt_paused_s"], 1),
         tokens_processed=st["tokens"], unique_train_tokens=int(unique_tokens),
-        train_subset=(dict(key=SUBSET_KEY, windows=int(loader.n_windows),
-                           first_window_ids=[int(x) for x in window_ids[:5]])
+        train_subset=(dict(key=SUBSET_KEY, windows=int(len(window_ids)),
+                           first_window_ids=[int(x) for x in window_ids[:5]],
+                           shifted_windows=bool(cfg.train_subset_shift))
                       if window_ids is not None else None),
+        corpus_mix=(dict(corpora=mix_info, windows_drawn=loader.state()["drawn"],
+                         realised_share=[round(d / max(1, sum(loader.state()["drawn"])), 5)
+                                         for d in loader.state()["drawn"]],
+                         passes_per_corpus=[round(loader.epoch[c] + loader.pos[c] / len(pools[c]), 5)
+                                            for c in range(loader.n)],
+                         pool_tokens=cfg.mix_pool_tokens) if mix else None),
         train_tokens_available=int(train_tokens_available),
         passes_over_data=round(st["tokens"] / (loader.n_windows * cfg.block_size), 4),
         avg_tokens_per_s=round(st["tokens"] / max(1e-9, st["counted"]), 1),

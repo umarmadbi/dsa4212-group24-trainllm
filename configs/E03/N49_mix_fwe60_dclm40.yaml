@@ -1,0 +1,28 @@
+# E03 follow-up R8 (D26; trigger fired, rules fixed before its runs): N49 trained on a 60/40 mix (by tokens) of
+# FineWeb-Edu and DCLM. Each corpus contributes a 1B-token random pool (nested-subset key 1234; no repetition
+# in 60 min). Everything else identical to configs/E02/N49.yaml. Rules: docs/experiments/E03 (R8).
+run_id: E03-N49_mix_fwe60_dclm40
+experiment: E03
+corpus: mix
+corpus_mix: ["fineweb_edu=0.6", "dclm=0.4"]
+mix_pool_tokens: 1000000000
+eval_corpora: [fineweb_edu, fineweb, dclm, wikipedia]   # headline = first (FineWeb-Edu val); others scored after training, outside the budget (D18)
+n_layer: 11
+n_head: 9
+n_embd: 576
+block_size: 512
+vocab_size: 8192
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 2.0e-03                 # E01 pick for this size
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 3600              # declared budget: 60 counted minutes
+eval_every_frac: 0.05
+ckpt_every_s: 600           # ~10 min, as declared (section 1)
+compile: true
+dtype: bfloat16

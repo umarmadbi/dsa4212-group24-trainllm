@@ -317,13 +317,14 @@ def rescore_one(run_id: str, sets: list, exclude: dict, tag: str) -> dict:
 
 @app.local_entrypoint()
 def rescore(run_ids: str, sets: str = "fineweb_edu,fineweb,dclm,wikipedia", exclude: str = "",
-            tag: str = ""):
+            tag: str = "", fetch_only: bool = False):
     """Re-score saved final models (outside the budget; D25). Run from the workspace that trained them.
         modal run modal_app.py::rescore --run-ids "E03-N49_dclm__s0,E03-N49_dclm__s1" --exclude contamination
         modal run modal_app.py::rescore --run-ids "E01-N26_lr4e-3_60min__s0"
     --exclude contamination: drop, from each validation set, the documents listed in
     results/contamination.json (union over training corpora, declared threshold), the same for every run.
-    Writes results/rescore/<run_id>__<tag>.json (tag: 'nocontam' or 'full' unless given)."""
+    Writes results/rescore/<run_id>__<tag>.json (tag: 'nocontam' or 'full' unless given).
+    If the terminal loses its connection, rerun the same command with --fetch-only (same workspace)."""
     ids = [r.strip() for r in run_ids.split(",") if r.strip()]
     set_list = [x.strip() for x in sets.split(",") if x.strip()]
     ex = {}
@@ -336,13 +337,18 @@ def rescore(run_ids: str, sets: str = "fineweb_edu,fineweb,dclm,wikipedia", excl
         raise SystemExit("--exclude must be '' or 'contamination'")
     tag = tag or ("nocontam" if exclude else "full")
     print(f"workspace profile: {_modal_workspace()}")
-    calls = [(rid, rescore_one.spawn(rid, set_list, ex, tag)) for rid in ids]
     Path("results/rescore").mkdir(parents=True, exist_ok=True)
+    if fetch_only:      # D26: results are saved on the runs Volume first; fetch them after a dropped connection
+        calls = [(rid, None) for rid in ids]
+    else:
+        calls = [(rid, rescore_one.spawn(rid, set_list, ex, tag)) for rid in ids]
     for rid, call in calls:
         try:
-            res = call.get()
+            res = (json.loads(b"".join(runs_vol.read_file(f"_analysis/rescore/{rid}__{tag}.json")))
+                   if call is None else call.get())
         except Exception as e:  # noqa: BLE001
-            print(f"FAILED {rid}: {e!r} (result may still be on the Volume: /runs/_analysis/rescore)")
+            print(f"FAILED {rid}: {e!r} (if the job finished, fetch it later with --fetch-only "
+                  "from the same workspace)")
             continue
         if "error" in res:
             print(f"SKIPPED {rid}: {res['error']} (run it from the workspace that trained it)")
