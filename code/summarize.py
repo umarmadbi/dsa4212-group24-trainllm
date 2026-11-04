@@ -501,7 +501,8 @@ def _set_bpb(r, c):
 def _run_checks(r, ref):
     m = r.get("meta") or {}
     n = []
-    tps, size_ref = r.get("steady_tokens_per_s"), ref.get("N49")
+    # each run against ITS OWN size's pilot speed (D27: the E04 F2 runs are N17/N26/N65, not N49)
+    tps, size_ref = r.get("steady_tokens_per_s"), ref.get(size_of(r))
     if tps and size_ref:
         rel = tps / size_ref - 1
         n.append(f"speed {rel:+.1%}")
