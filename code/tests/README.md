@@ -9,11 +9,11 @@ Run from the repo root (needs `pip install torch numpy pyyaml`):
 python code/tests/test_pipeline.py
 ```
 
-Expected last line: `12/12 passed`. Run it after any change to `code/` and before committing.
+Expected last line: `15/15 passed`. Run it after any change to `code/` and before committing.
 
 | File | What it does |
 |---|---|
-| `test_pipeline.py` | The 12 tests below. Each one is a row of the correctness checklist in the Phase 0 records |
+| `test_pipeline.py` | The 15 tests below. Each one is a row of the correctness checklist in the Phase 0 records |
 
 | Test | What it proves |
 |---|---|
@@ -27,6 +27,9 @@ Expected last line: `12/12 passed`. Run it after any change to `code/` and befor
 | refuse resume with other seed | A checkpoint is never resumed with the wrong config or seed |
 | crash once + resume | The hook used by the Modal kill-and-resume test crashes only on the first attempt |
 | divergence guard | A run whose loss becomes NaN stops at once and is marked `diverged` |
+| random nested training subsets (E04) | Repetition subsets are nested, spread over the whole train split (not a prefix), the same for every seed, and each subset window is read once per pass (D23) |
+| 13-gram contamination check (E03 R3) | `contamination.py` finds shared 13-grams exactly like a brute-force lookup, also across chunk boundaries; union over training corpora (D25) |
+| rescore reproduces stored BPB | `rescore.py` re-scores a saved model to exactly its stored BPB, and leaving documents out equals scoring a hand-rebuilt file (D25) |
 | all config files load | Every YAML file in `configs/` loads with the right types (a YAML quirk crashed the first benchmarks) |
 | no pretrained-weights code path | `model.py` cannot load GPT-2 weights |
 

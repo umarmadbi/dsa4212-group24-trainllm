@@ -230,6 +230,133 @@ def rebuild_data():
 
 
 # ---------------------------------------------------------------------------
+# Analysis jobs (outside every training budget; D25). Results are written to the runs Volume
+# FIRST (/runs/_analysis/...), so a dropped laptop connection loses nothing: fetch them later.
+# ---------------------------------------------------------------------------
+CONTAM_TRAIN = ["fineweb_edu", "fineweb", "dclm"]
+
+
+@app.function(cpu=8, memory=32768, timeout=3 * 60 * 60,
+              volumes={"/data": data_vol, "/runs": runs_vol})
+def contamination_one(train_corpus: str) -> dict:
+    """13-gram check of every val/test document against ONE training corpus's full train split."""
+    import sys
+    sys.path.insert(0, "/root/code")
+    import contamination as C
+    res = C.run_check("/data", train_corpora=(train_corpus,))
+    out = Path("/runs/_analysis")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"contamination_{train_corpus}.json").write_text(json.dumps(res))
+    runs_vol.commit()
+    return res
+
+
+@app.local_entrypoint()
+def contamination(fetch_only: bool = False):
+    """E03 rule R3 / DECLARATIONS section 3 (D25). CPU only, ~10-20 min, a few cents.
+        modal run --detach modal_app.py::contamination        # starts 3 jobs (one per train corpus)
+        modal run modal_app.py::contamination --fetch-only    # later, if the connection dropped
+    Writes results/contamination.json and prints the summary. Any verified workspace works (the data
+    are identical); fetch from the SAME workspace."""
+    import sys
+    sys.path.insert(0, str(Path("code").resolve()))
+    import contamination as C
+    print(f"workspace profile: {_modal_workspace()}")
+    if not fetch_only:
+        calls = [(tc, contamination_one.spawn(tc)) for tc in CONTAM_TRAIN]
+        print(f"started {len(calls)} job(s); if this terminal loses its connection, the jobs continue: "
+              "fetch later with --fetch-only")
+        for tc, call in calls:
+            try:
+                call.get()
+                print(f"done: {tc}")
+            except Exception as e:  # noqa: BLE001
+                print(f"waiting for {tc} failed here ({e!r}); fetch later with --fetch-only")
+    merged = None
+    for tc in CONTAM_TRAIN:
+        try:
+            r = json.loads(b"".join(runs_vol.read_file(f"_analysis/contamination_{tc}.json")))
+        except Exception as e:  # noqa: BLE001
+            print(f"not available yet: {tc} ({e!r})")
+            continue
+        if merged is None:
+            merged = {k: v for k, v in r.items() if k != "by_train_corpus"}
+            merged["by_train_corpus"] = {}
+        merged["by_train_corpus"].update(r["by_train_corpus"])
+    if not merged:
+        return
+    merged["union_declared"] = C.union(merged)
+    merged["complete"] = sorted(merged["by_train_corpus"]) == sorted(CONTAM_TRAIN)
+    merged["modal_workspace"] = _modal_workspace()
+    merged.update({k: v for k, v in _git_info().items() if k in ("git_commit", "git_dirty")})
+    Path("results").mkdir(exist_ok=True)
+    Path("results/contamination.json").write_text(json.dumps(merged, indent=1))
+    print(C.report(merged))
+    print("written: results/contamination.json" + ("" if merged["complete"] else "  (INCOMPLETE)"))
+
+
+@app.function(gpu=GPU, cpu=4, memory=16384, timeout=30 * 60,
+              volumes={"/data": data_vol, "/runs": runs_vol})
+def rescore_one(run_id: str, sets: list, exclude: dict, tag: str) -> dict:
+    """Score /runs/<run_id>/final_model.pt on full validation splits, optionally without some docs."""
+    import sys
+    sys.path.insert(0, "/root/code")
+    import rescore as R
+    if not (Path("/runs") / run_id / "final_model.pt").exists():
+        return {"error": f"{run_id}/final_model.pt not on this workspace's runs Volume"}
+    gpu_name = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                              capture_output=True, text=True).stdout.strip()
+    res = R.rescore(f"/runs/{run_id}", "/data", sets, exclude)
+    res.update(gpu_name=gpu_name, tag=tag)
+    out = Path("/runs/_analysis/rescore")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{run_id}__{tag}.json").write_text(json.dumps(res))
+    runs_vol.commit()
+    return res
+
+
+@app.local_entrypoint()
+def rescore(run_ids: str, sets: str = "fineweb_edu,fineweb,dclm,wikipedia", exclude: str = "",
+            tag: str = ""):
+    """Re-score saved final models (outside the budget; D25). Run from the workspace that trained them.
+        modal run modal_app.py::rescore --run-ids "E03-N49_dclm__s0,E03-N49_dclm__s1" --exclude contamination
+        modal run modal_app.py::rescore --run-ids "E01-N26_lr4e-3_60min__s0"
+    --exclude contamination: drop, from each validation set, the documents listed in
+    results/contamination.json (union over training corpora, declared threshold), the same for every run.
+    Writes results/rescore/<run_id>__<tag>.json (tag: 'nocontam' or 'full' unless given)."""
+    ids = [r.strip() for r in run_ids.split(",") if r.strip()]
+    set_list = [x.strip() for x in sets.split(",") if x.strip()]
+    ex = {}
+    if exclude == "contamination":
+        u = json.loads(Path("results/contamination.json").read_text())["union_declared"]
+        ex = {name.split("/")[0]: v["doc_indices"] for name, v in u.items()
+              if name.endswith("/val") and v["doc_indices"]}
+        print("excluding: " + (", ".join(f"{c} {len(v)} docs" for c, v in ex.items()) or "nothing"))
+    elif exclude:
+        raise SystemExit("--exclude must be '' or 'contamination'")
+    tag = tag or ("nocontam" if exclude else "full")
+    print(f"workspace profile: {_modal_workspace()}")
+    calls = [(rid, rescore_one.spawn(rid, set_list, ex, tag)) for rid in ids]
+    Path("results/rescore").mkdir(parents=True, exist_ok=True)
+    for rid, call in calls:
+        try:
+            res = call.get()
+        except Exception as e:  # noqa: BLE001
+            print(f"FAILED {rid}: {e!r} (result may still be on the Volume: /runs/_analysis/rescore)")
+            continue
+        if "error" in res:
+            print(f"SKIPPED {rid}: {res['error']} (run it from the workspace that trained it)")
+            continue
+        Path(f"results/rescore/{rid}__{tag}.json").write_text(json.dumps(res, indent=1))
+        for c, e in res["sets"].items():
+            d = e.get("diff_vs_stored")
+            print(f"{rid} {c:12s} bpb {e['full']['bpb']:.4f}"
+                  + (f" (stored {e['stored_bpb']:.4f}, diff {d:+.1e})" if d is not None else " (not scored before)")
+                  + (f"  without {e['excluded']['docs_removed']} docs: {e['excluded']['bpb']:.4f}"
+                     if "excluded" in e else ""))
+
+
+# ---------------------------------------------------------------------------
 # Local side: runs on your computer, launches jobs and records their results.
 # ---------------------------------------------------------------------------
 # Everything that is shipped into the container and can change a result.

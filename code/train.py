@@ -93,15 +93,34 @@ class BudgetClock:
         return self.counted + time.perf_counter() - self._t0
 
 
+SUBSET_KEY = 1234   # fixed key for the nested random training subsets (E04, D23); never per-run
+
+
+def subset_window_ids(n_tokens: int, T: int, subset_tokens: int) -> np.ndarray:
+    """Window ids of the nested random subset with ~subset_tokens training targets.
+    The permutation depends only on (SUBSET_KEY, number of windows), so for one train split
+    every smaller subset is a prefix of every larger one (nested) and is a uniform random
+    sample of the whole split. Sorted, so reading order is decided by the run's own loader."""
+    n_win = (n_tokens - 1) // T
+    m = subset_tokens // T
+    if not 1 <= m <= n_win:
+        raise ValueError(f"train_subset_tokens={subset_tokens} gives {m} windows; "
+                         f"the split has {n_win}")
+    return np.sort(np.random.default_rng(SUBSET_KEY).permutation(n_win)[:m])
+
+
 class WindowLoader:
     """Shuffled pass over non-overlapping windows of block_size+1 tokens.
 
     Window i covers tokens[i*T : i*T+T+1]; consecutive windows share one token so
-    every training token is a target exactly once per pass."""
+    every training token is a target exactly once per pass. If `window_ids` is given,
+    only those windows are used (random training subset, E04)."""
 
-    def __init__(self, tokens: np.ndarray, T: int, seed: int):
+    def __init__(self, tokens: np.ndarray, T: int, seed: int, window_ids=None):
         self.tokens, self.T, self.seed = tokens, T, seed
-        self.n_windows = (len(tokens) - 1) // T
+        self.window_ids = None if window_ids is None else np.asarray(window_ids, dtype=np.int64)
+        self.n_windows = ((len(tokens) - 1) // T if self.window_ids is None
+                          else len(self.window_ids))
         if self.n_windows < 1:
             raise ValueError("not enough training tokens for one window")
         self.epoch, self.pos = 0, 0
@@ -121,7 +140,10 @@ class WindowLoader:
                 self.epoch += 1
                 self.pos = 0
                 self._perm = self._make_perm(self.epoch)
-        starts = np.asarray(idx, dtype=np.int64) * self.T
+        idx = np.asarray(idx, dtype=np.int64)
+        if self.window_ids is not None:
+            idx = self.window_ids[idx]
+        starts = idx * self.T
         return torch.from_numpy(self.tokens[starts[:, None] + self._offsets].astype(np.int64))
 
     def passes(self) -> float:
@@ -303,6 +325,11 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
         if cfg.train_tokens_limit > len(train_tokens):
             raise ValueError("train_tokens_limit larger than the train split")
         train_tokens = train_tokens[:cfg.train_tokens_limit]
+    window_ids = None
+    if cfg.train_subset_tokens:
+        if cfg.train_tokens_limit:
+            raise ValueError("use train_subset_tokens or train_tokens_limit, not both")
+        window_ids = subset_window_ids(len(train_tokens), cfg.block_size, cfg.train_subset_tokens)
     val = {c: np.fromfile(data_dir / "tokens" / c / "val.bin", dtype=np.uint16)
            for c in sorted(set(cfg.eval_corpora) | {cfg.curve_corpus})}
     curve_tokens = val[cfg.curve_corpus][:cfg.curve_tokens + 1]
@@ -314,7 +341,9 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
                           dropout=cfg.dropout, bias=cfg.bias)).to(device)
     optimizer = model.configure_optimizers(cfg.weight_decay, cfg.lr, (cfg.beta1, cfg.beta2),
                                            device)
-    loader = WindowLoader(train_tokens, cfg.block_size, seed)
+    loader = WindowLoader(train_tokens, cfg.block_size, seed, window_ids)
+    # distinct training tokens available (unchanged meaning for full-split runs)
+    unique_tokens = len(train_tokens) if window_ids is None else loader.n_windows * cfg.block_size
 
     st = dict(step=0, counted=0.0, tokens=0, t_warm_end=None,
               next_eval=cfg.eval_every_frac * cfg.budget_s, next_ckpt=cfg.ckpt_every_s,
@@ -357,7 +386,7 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
     counts = raw_model.param_counts()
     tokens_per_step = cfg.micro_batch * cfg.block_size * cfg.grad_accum
     print(f"run {cfg.run_id} seed {seed} | params {counts} | tokens/step {tokens_per_step} | "
-          f"train tokens {len(train_tokens):,} | device {device}", flush=True)
+          f"train tokens {unique_tokens:,} | device {device}", flush=True)
     if device == "cuda":
         torch.cuda.reset_peak_memory_stats()
 
@@ -505,7 +534,10 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
         wallclock_s_this_attempt=round(time.time() - wall_start, 1),
         attempts=st["attempts"], eval_paused_s=round(st["eval_paused_s"], 1),
         ckpt_paused_s=round(st["ckpt_paused_s"], 1),
-        tokens_processed=st["tokens"], unique_train_tokens=int(len(train_tokens)),
+        tokens_processed=st["tokens"], unique_train_tokens=int(unique_tokens),
+        train_subset=(dict(key=SUBSET_KEY, windows=int(loader.n_windows),
+                           first_window_ids=[int(x) for x in window_ids[:5]])
+                      if window_ids is not None else None),
         train_tokens_available=int(train_tokens_available),
         passes_over_data=round(st["tokens"] / (loader.n_windows * cfg.block_size), 4),
         avg_tokens_per_s=round(st["tokens"] / max(1e-9, st["counted"]), 1),

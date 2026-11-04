@@ -57,6 +57,19 @@ The result of `configs/E01/N26_lr2e-3.yaml` with seed 0 is `results/runs/E01-N26
 Every E02 config scores the final model on all four validation splits (`eval_corpora`): FineWeb-Edu is the headline
 number used for decisions; FineWeb, DCLM and Wikipedia are extra information, scored after training (outside the budget).
 
+## E03/: data quality (Phase 3a, final runs)
+
+| Files | What they are |
+|---|---|
+| `N49_fineweb.yaml`, `N49_dclm.yaml` | The baseline size N49 for 60 minutes on raw FineWeb or on DCLM instead of FineWeb-Edu (seeds 0-2). The FineWeb-Edu arm is `configs/E02/N49.yaml` (its runs are reused). Judged on the average over all four validation sets |
+| `N49_{fineweb,dclm}_lr{2e-3,4e-3}_15min.yaml` | Learning-rate check (rule R6, D25): 15-minute pilots, seed 0. N49's learning rate was tuned on FineWeb-Edu only; these check that 2e-3 is not clearly worse than 4e-3 on the other two corpora. Preliminary work (`--kind pilot`), not part of the arms |
+
+## E04/: repetition (Phase 3b, final runs)
+
+| Files | What they are |
+|---|---|
+| `N49_rep2.yaml` ... `N49_rep32.yaml` | N49 for 60 minutes on a small random slice of FineWeb-Edu, sized so the hour reads it about 2, 4, 8, 16 or 32 times. Compared with N49 on unique data |
+
 ## Settings (every field a config can have)
 
 Fields left out take the default from `code/config.py`. Unknown fields are rejected.
@@ -66,7 +79,8 @@ Fields left out take the default from `code/config.py`. Unknown fields are rejec
 | `run_id` | | Name of the run (`E<NN>-<description>`); must be unique |
 | `experiment` | `E00` | Experiment number, used to group results |
 | `corpus` | `fineweb_edu` | Training text: `fineweb_edu`, `fineweb` or `dclm` |
-| `train_tokens_limit` | 0 | If > 0, train only on the first N tokens (repetition experiment) |
+| `train_tokens_limit` | 0 | If > 0, train only on the FIRST N tokens in file order (not a random sample; not used for results) |
+| `train_subset_tokens` | 0 | If > 0, train on a random nested subset of about N tokens (whole windows, fixed key 1234): the repetition experiment E04 |
 | `eval_corpora` | `[fineweb_edu]` | Validation splits scored at the end; the first one is the headline number |
 | `curve_corpus`, `curve_tokens` | `fineweb_edu`, 262,144 | Small validation subset scored during training for the learning curve |
 | `n_layer`, `n_head`, `n_embd` | | Model shape (layers, attention heads, width) |

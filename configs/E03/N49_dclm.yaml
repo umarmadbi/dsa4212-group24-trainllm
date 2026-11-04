@@ -1,0 +1,26 @@
+# E03 (Phase 3, data quality; FINAL RUN under the declared budget). Baseline size N49 (P9, D22) at its
+# LR 2e-3, trained on DCLM instead of FineWeb-Edu. Everything else identical to configs/E02/N49.yaml.
+# The FineWeb-Edu arm is E02-N49 seeds 0-2 (same config). Rules: docs/experiments/E03 (D23).
+run_id: E03-N49_dclm
+experiment: E03
+corpus: dclm
+eval_corpora: [fineweb_edu, fineweb, dclm, wikipedia]   # headline = first (FineWeb-Edu val); others scored after training, outside the budget (D18)
+n_layer: 11
+n_head: 9
+n_embd: 576
+block_size: 512
+vocab_size: 8192
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 2.0e-03                 # N49 pick (E01 close call, 3-seed means; D20)
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 3600              # declared budget: 60 counted minutes
+eval_every_frac: 0.05
+ckpt_every_s: 600           # ~10 min, as declared (section 1)
+compile: true
+dtype: bfloat16

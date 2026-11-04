@@ -24,7 +24,12 @@ class Config:
     experiment: str = "E00"
     # data
     corpus: str = "fineweb_edu"
-    train_tokens_limit: int = 0            # >0: use only the first N train tokens (nested subsets)
+    train_tokens_limit: int = 0            # >0: use only the FIRST N train tokens (file order; not used for results)
+    # >0: train on a RANDOM nested subset of ~N tokens (repetition experiment E04, D23):
+    # whole 513-token windows drawn by a fixed permutation (key SUBSET_KEY in train.py, the
+    # same for every run and seed), so every smaller subset is contained in every larger one
+    # and each subset is a uniform sample of the whole train split.
+    train_subset_tokens: int = 0
     eval_corpora: list = field(default_factory=lambda: ["fineweb_edu"])  # full val at the end
     curve_corpus: str = "fineweb_edu"      # fixed subset scored during training
     curve_tokens: int = 262_144            # ~1 MB of FineWeb-Edu text at 3.87 bytes/token

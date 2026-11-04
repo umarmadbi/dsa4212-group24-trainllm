@@ -22,7 +22,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bpb import evaluate_bpb  # noqa: E402
 from model import GPT, GPTConfig  # noqa: E402
-from train import Config, WindowLoader, lr_at, run  # noqa: E402
+from train import Config, WindowLoader, lr_at, run, subset_window_ids  # noqa: E402
 
 V, EOT = 64, 63
 
@@ -217,6 +217,38 @@ def test_divergence_guard(d: Path, out: Path):
     json.dumps(r)   # (lr=inf in this artificial test, so NaN-free output is not asserted)
 
 
+
+def test_random_nested_subsets(d: Path, out: Path):
+    """E04 (D23): random training subsets are nested, uniform over the split, the same for
+    every run seed, and the loader reads only those windows, each once per pass."""
+    n_tok, T = 100_001, 10
+    small, big = subset_window_ids(n_tok, T, 2_000), subset_window_ids(n_tok, T, 20_000)
+    assert len(small) == 200 and len(big) == 2_000
+    assert set(small) <= set(big)                                  # nested
+    assert small.max() > 0.8 * (n_tok // T) and small.min() < 0.2 * (n_tok // T)  # spread, not a prefix
+    toks = np.arange(n_tok, dtype=np.uint32)
+    L = WindowLoader(toks, T, seed=5, window_ids=small)
+    starts = [int(L.next_batch(1)[0, 0]) for _ in range(200)]
+    assert sorted(starts) == sorted(int(w) * T for w in small)     # each subset window once
+    assert L.epoch == 1 and abs(L.passes() - 1.0) < 1e-9
+    L2 = WindowLoader(toks, T, seed=6, window_ids=small)            # other seed: same windows,
+    s2 = [int(L2.next_batch(1)[0, 0]) for _ in range(200)]          # different order
+    assert sorted(s2) == sorted(starts) and s2 != starts
+    # end to end: a subset run reports the subset as its unique data and counts passes
+    r = run(tiny_cfg(budget_s=1e9, schedule="steps", max_steps=40, train_subset_tokens=3_200,
+                     run_id="subset"),
+            0, str(d), str(out))
+    assert r["unique_train_tokens"] == 3_200 // 32 * 32
+    assert r["passes_over_data"] > 1.0                              # 40 steps x 256 tokens > 3,200
+    assert r["train_subset"]["windows"] == 3_200 // 32
+    for bad in (dict(train_subset_tokens=10), dict(train_subset_tokens=3_200, train_tokens_limit=50_000)):
+        try:
+            run(tiny_cfg(budget_s=1e9, schedule="steps", max_steps=2, run_id="bad", **bad),
+                0, str(d), str(out))
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted {bad}")
+
 def test_all_config_files_load():
     """Every real config file loads with correct types (YAML 1.1 reads `1.0e9` as text;
     this bug crashed all 8 E00 benchmark runs on 2026-11-01)."""
@@ -246,6 +278,50 @@ def test_no_pretrained_path():
     assert not hasattr(M.GPT, "from_pretrained")
 
 
+def test_contamination_check():
+    """E03 R3 (D25): the 13-gram index finds planted copies exactly like a brute-force set lookup,
+    including matches that straddle the train chunk boundary, and skips documents < 13 tokens."""
+    import contamination as C
+    rng = np.random.default_rng(1)
+    train = rng.integers(0, 60, 30_000).astype(np.uint16)
+    docs = [rng.integers(0, 63, rng.integers(5, 150)).astype(np.uint16) for _ in range(40)]
+    docs[2] = train[100:180].copy()                                   # full copy
+    docs[5] = np.concatenate([train[4990:5030], rng.integers(0, 63, 40).astype(np.uint16)])  # spans chunk edge
+    ev = np.concatenate([np.append(d, EOT) for d in docs]).astype(np.uint16)
+    idx = C.EvalIndex({"x/val": ev}, EOT)
+    fr = idx.doc_fractions("x/val", idx.mark(train, chunk=5_000))
+    tr = {tuple(train[i:i + 13]) for i in range(len(train) - 12)}
+    for d, f in zip(docs, fr):
+        g = [tuple(d[i:i + 13]) for i in range(len(d) - 12)]
+        assert (np.isnan(f) and not g) or abs(f - np.mean([x in tr for x in g])) < 1e-12
+    assert fr[2] == 1.0 and 0.3 < fr[5] < 0.6
+    s = C.summarise(fr)
+    assert 2 in s["ge_50"]["doc_indices"] and s["docs_too_short"] == int(np.isnan(fr).sum())
+    u = C.union(dict(by_train_corpus={"a": {"x/val": s}, "b": {"x/val": dict(s, ge_50=dict(doc_indices=[7]))}}))
+    assert u["x/val"]["doc_indices"] == sorted(set(s["ge_50"]["doc_indices"]) | {7})
+
+
+def test_rescore_reproduces_and_excludes(d: Path, out: Path):
+    """rescore.py: a saved final model re-scores to exactly its stored BPB (float32, CPU), and removing
+    documents equals scoring a file rebuilt by hand without them."""
+    import rescore as R
+    r = run(tiny_cfg(budget_s=1e9, schedule="steps", max_steps=20, run_id="rescore"), 0, str(d), str(out))
+    res = R.rescore(str(out / "rescore"), str(d), ["fineweb_edu"], exclude={"fineweb_edu": [0, 3]}, device="cpu")
+    e = res["sets"]["fineweb_edu"]
+    assert abs(e["full"]["bpb"] - r["final_val"]["fineweb_edu"]["bpb"]) < 1e-9 and abs(e["diff_vs_stored"]) < 1e-9
+    toks = np.fromfile(d / "tokens" / "fineweb_edu" / "val.bin", dtype=np.uint16)
+    same, k0, r0 = R.rebuild_without(toks, EOT, [])
+    assert np.array_equal(same, toks) and r0 == 0
+    ends = np.flatnonzero(toks == EOT)
+    keep = [toks[(ends[i - 1] + 1 if i else 0):ends[i] + 1] for i in range(len(ends)) if i not in (0, 3)]
+    hand = np.concatenate(keep + [toks[ends[-1] + 1:]])
+    t2, kept, removed = R.rebuild_without(toks, EOT, [0, 3])
+    assert np.array_equal(t2, hand) and removed == 2 and kept == len(ends) - 2
+    model, c, _ = R.load_model(out / "rescore" / "final_model.pt", "cpu")
+    tb = np.load(d / "tokenizer" / "token_bytes.npy")
+    assert abs(evaluate_bpb(model, hand, tb, c["block_size"], 16, EOT, "cpu")["bpb"] - e["excluded"]["bpb"]) < 1e-12
+
+
 if __name__ == "__main__":
     tmp = Path(tempfile.mkdtemp())
     d, out = tmp / "data", tmp / "runs"
@@ -260,6 +336,9 @@ if __name__ == "__main__":
              ("refuse resume with other seed", test_refuses_wrong_resume, (d, out)),
              ("crash once (Modal test hook) + resume", test_crash_once_then_resume, (d, out)),
              ("divergence guard stops a NaN run", test_divergence_guard, (d, out)),
+             ("random nested training subsets (E04)", test_random_nested_subsets, (d, out)),
+             ("13-gram contamination check = brute force (E03 R3)", test_contamination_check, ()),
+             ("rescore reproduces stored BPB; document removal", test_rescore_reproduces_and_excludes, (d, out)),
              ("all config files load with correct types", test_all_config_files_load, ()),
              ("no pretrained-weights code path", test_no_pretrained_path, ())]
     failed = 0
