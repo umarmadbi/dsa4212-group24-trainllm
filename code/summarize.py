@@ -782,6 +782,17 @@ def _e04_followups(follow, byk, ref):
               + "; ".join(_run_checks(r, ref)[1:]))
     print("  'cost of limit' = this run minus the same size's unique-data E02 mean (how much the 36M-token limit hurts "
           "that size); gap-ref here = train-val gap minus N49 k=8's.")
+    k8 = [bpb_key(r) for r in byk.get(8, []) if r["seed"] in (0, 1, 2)]
+    if len(k8) == 3:                          # D27: also against the 3-seed reference (single vs 3-seed mean)
+        m8, t3 = statistics.mean(k8), 2 * SIGMA_FWE * math.sqrt(1 + 1 / 3)
+        sd_rep, df_rep = _pooled_sd([[bpb_key(r) for r in byk.get(k, []) if r["seed"] in (0, 1, 2)] for k in (2, 4, 8)])
+        t3r = 2 * sd_rep * math.sqrt(1 + 1 / 3) if sd_rep else float("nan")
+        print(f"  vs the 3-seed N49 k=8 mean {m8:.4f} (sd {statistics.stdev(k8):.4f}): threshold {t3:.4f} (sigma60); "
+              f"sensitivity with the pooled repeated-data sd {sd_rep:.4f} ({df_rep} df): {t3r:.4f}")
+        for r in sorted(follow, key=lambda r: r["params"]["total"]):
+            d = bpb_key(r) - m8
+            v = lambda t: "BETTER" if d < -t else ("WORSE" if d > t else "inconclusive")
+            print(f"    {r['run_id']:22s} {d:+.4f} -> {v(t3):12s} (repeated-data sd: {v(t3r)})")
 
 
 def main_e04():
@@ -885,10 +896,331 @@ def main_e04():
     print("Diagnostic (R6, D25): python code/fit_repetition.py  (Muennighoff-style effective data, R*)")
 
 
+# E05 Muon vs AdamW and E06 depth vs width (Phase 4). Rules: D28, revised in D30 before any E05/E06 run.
+E05_GRID = [1e-3, 2e-3, 4e-3, 8e-3]     # Muon LR grid (D28)
+E06_GRID = [5e-4, 1e-3, 2e-3, 4e-3]     # D30: the declared E01 grid, as every model size got (D28 had 2e-3/4e-3 only)
+MAX_EDGE_EXT = 2                        # edge rule: at most 2 extensions per side (D07)
+AD_PILOTS = {lr: [f"E01-N49_lr{lr}__s{s}" for s in (0, 1, 2)] for lr in ("5e-4", "1e-3", "2e-3", "4e-3")}
+
+
+def lr_tag(x):
+    """0.002 -> '2e-3', 0.0005 -> '5e-4', 0.016 -> '1.6e-2' (the config-file spelling)."""
+    m, e = f"{x:.1e}".split("e")
+    return f"{m.rstrip('0').rstrip('.')}e{int(e)}"
+
+
+def _pick_lr(pilots, key, grid):
+    """Declared LR protocol (DECLARATIONS sec. 1, D07/D09), applied to the 15-min pilots of one configuration.
+    Returns (pick or None, runner_up or None, note, seed0 dict). pick is None while a declared step is pending.
+    1. every grid value needs its seed-0 pilot;
+    2. edge rule: if the best seed-0 value is the lowest/highest LR TRIED, the next factor-2 value beyond it is run,
+       at most twice per side (D07) - judged on the LRs actually run, so it also fires after an extension;
+    3. close call: if the runner-up is within 2.8 sigma15, seeds 1, 2 of both; the lower 3-seed mean wins (D09).
+    A diverged pilot ranks worst (bpb_key = inf)."""
+    by = defaultdict(list)
+    for r in pilots:
+        by[key(r)].append(r)
+    s0 = {k: next((bpb_key(r) for r in v if r["seed"] == 0), None) for k, v in by.items()}
+    s0 = {k: v for k, v in s0.items() if v is not None}
+    missing = [g for g in grid if g not in s0]
+    if missing:
+        return None, None, "waiting for seed-0 pilots at " + ", ".join(lr_tag(g) for g in missing), s0
+    tried = sorted(s0)
+    order = sorted(s0, key=s0.get)
+    best = order[0]
+    lo_ext = sum(x < min(grid) for x in tried); hi_ext = sum(x > max(grid) for x in tried)
+    notes = []
+    if best == tried[0] and best < tried[-1]:
+        if lo_ext < MAX_EDGE_EXT:
+            return None, None, f"EDGE: best {lr_tag(best)} is the lowest LR tried -> run {lr_tag(best / 2)} (edge rule)", s0
+        notes.append(f"best at the low edge after {MAX_EDGE_EXT} extensions (D07 limit; reported)")
+    if best == tried[-1] and best > tried[0]:
+        if hi_ext < MAX_EDGE_EXT:
+            return None, None, f"EDGE: best {lr_tag(best)} is the highest LR tried -> run {lr_tag(best * 2)} (edge rule)", s0
+        notes.append(f"best at the high edge after {MAX_EDGE_EXT} extensions (D07 limit; reported)")
+    runner = order[1] if len(order) > 1 else None
+    if runner is not None and s0[runner] - s0[best] <= 2.8 * SIGMA15:
+        a, b = best, runner
+        m = {k: [bpb_key(r) for r in by[k] if r["seed"] in (0, 1, 2)] for k in (a, b)}
+        if all(len(v) == 3 for v in m.values()):
+            best, runner = sorted((a, b), key=lambda k: statistics.mean(m[k]))
+            notes.append(f"close call {lr_tag(a)} vs {lr_tag(b)} decided by 3-seed means "
+                         f"{statistics.mean(m[a]):.4f} / {statistics.mean(m[b]):.4f}")
+        else:
+            return None, None, (f"CLOSE CALL {lr_tag(a)} vs {lr_tag(b)} (gap {s0[b] - s0[a]:.4f} <= 2.8 sigma15 = "
+                                f"{2.8 * SIGMA15:.4f}) -> run seeds 1, 2 of both (15 min)"), s0
+    return best, runner, "; ".join(notes) or "clear pick", s0
+
+
+def _curve_at(r, step):
+    """Fixed-subset validation BPB (learning curve) linearly interpolated at a step count."""
+    c = [x for x in r.get("curve", []) if x.get("val_bpb") is not None]
+    for a, b in zip(c, c[1:]):
+        if a["step"] <= step <= b["step"]:
+            t = (step - a["step"]) / max(1, b["step"] - a["step"])
+            return a["val_bpb"] + t * (b["val_bpb"] - a["val_bpb"])
+    return None
+
+
+def _lr_frac_at(r, step):
+    """Learning rate at a step as a fraction of the peak (from lr_log), for the equal-steps caveat."""
+    log = r.get("lr_log") or []
+    best = min(log, key=lambda x: abs(x[0] - step), default=None)
+    return best[2] / r["config"]["lr"] if best else None
+
+
+def _diagnostics(arm, base, arm_pilots, base_pilots, label):
+    """R4 (D30, reported, never decisive): equal-steps view, machine-speed adjustment, AVG4, clipping."""
+    if not arm or not base:
+        return
+    fin = lambda r: (r.get("curve") or [{}])[-1].get("val_bpb")
+    # (a) per step vs per time (the Muon reading asks to separate them). Steps = tokens here (same tokens/step).
+    # Compare at the SMALLER mean step count: the arm that took more steps is read off its own learning curve there.
+    sa = statistics.mean(r["steps"] for r in arm); sb = statistics.mean(r["steps"] for r in base)
+    s_eq = min(sa, sb)
+    longer, shorter = (base, arm) if sb >= sa else (arm, base)
+    at = [_curve_at(r, s_eq) for r in longer]
+    if all(x is not None for x in at) and all(fin(r) for r in arm + base):
+        a_fin = statistics.mean(fin(r) for r in arm); b_fin = statistics.mean(fin(r) for r in base)
+        l_at = statistics.mean(at)
+        a_eq, b_eq = (a_fin, l_at) if longer is base else (l_at, b_fin)
+        who = "baseline" if longer is base else label
+        lrf = statistics.mean(x for x in (_lr_frac_at(r, s_eq) for r in longer) if x is not None)
+        print(f"  R4a per step vs per time (learning-curve subset, means over seeds; {label} {sa:.0f} steps, baseline {sb:.0f}):")
+        print(f"      at equal TIME  (both at 60 min):                 {label} - baseline = {a_fin - b_fin:+.4f}")
+        print(f"      at equal STEPS ({who} curve read at {s_eq:.0f} steps): {label} - baseline = {a_eq - b_eq:+.4f}"
+              f"   [{who} LR there = {lrf:.2f} x peak, not fully annealed (0.10 at the end): this view slightly "
+              f"favours the other arm]")
+        print(f"      -> what {label}'s different speed per step is worth (time view minus step view): "
+              f"{(a_fin - b_fin) - (a_eq - b_eq):+.4f}")
+    # (b) machine-speed sensitivity: speed index = run's steady tokens/s / median of its own configuration's pilots
+    beta, _, df = _speed_slope(_e02_groups(bpb_key).values())
+    ref_a = statistics.median(r["steady_tokens_per_s"] for r in arm_pilots) if arm_pilots else None
+    ref_b = statistics.median(r["steady_tokens_per_s"] for r in base_pilots) if base_pilots else None
+    if beta is not None and ref_a and ref_b:
+        ia = statistics.mean(math.log(r["steady_tokens_per_s"] / ref_a) for r in arm)
+        ib = statistics.mean(math.log(r["steady_tokens_per_s"] / ref_b) for r in base)
+        raw = statistics.mean(bpb_key(r) for r in arm) - statistics.mean(bpb_key(r) for r in base)
+        adj = raw - beta * (ia - ib)
+        print(f"  R4b machine speed: mean speed vs own pilots {label} {ia:+.1%}, baseline {ib:+.1%}; slope "
+              f"{beta:.3f} BPB per ln(tokens) (E02 within-size, {df} df; imprecise, sensitivity only) -> diff adjusted to equal machine speed {adj:+.4f} "
+              f"(raw {raw:+.4f}){'  [VERDICT-SENSITIVE: adjusted and raw on different sides of the threshold]' if (abs(raw) > 1.6 * SIGMA_FWE) != (abs(adj) > 1.6 * SIGMA_FWE) and len(arm) >= 3 else ''}")
+    # (c) the four validation sets (descriptive), clipping, gradient norm
+    av = [_avg4(r) for r in arm]; bv = [_avg4(r) for r in base]
+    if all(x < math.inf for x in av + bv):
+        print(f"  R4c AVG4 {label} {statistics.mean(av):.4f} vs baseline {statistics.mean(bv):.4f} "
+              f"({statistics.mean(av) - statistics.mean(bv):+.4f}; 3-seed noise scale 1.6 sigma_avg4 = {1.6 * SIGMA_AVG4:.4f}); per set: "
+              + ", ".join(f"{c} {statistics.mean(_set_bpb(r, c) for r in arm) - statistics.mean(_set_bpb(r, c) for r in base):+.4f}"
+                          for c in VAL_SETS))
+    print(f"  R4d clipped steps {label} {statistics.mean(r.get('frac_steps_clipped') or 0 for r in arm):.2%} vs baseline "
+          f"{statistics.mean(r.get('frac_steps_clipped') or 0 for r in base):.2%}; tokens {statistics.mean(r['tokens_processed'] for r in arm) / 1e6:.0f}M "
+          f"vs {statistics.mean(r['tokens_processed'] for r in base) / 1e6:.0f}M; MFU (6N+attn FLOPs only) "
+          f"{statistics.mean(r.get('mfu_steady') or 0 for r in arm):.3f} vs {statistics.mean(r.get('mfu_steady') or 0 for r in base):.3f}")
+
+
+def _final_vs_adamw(rows, label):
+    """R2: 3 seeds vs the AdamW N49 3-seed mean (1.6 sigma60); with one seed, the seed-0 rule (2 sigma60 sqrt(4/3))."""
+    base = _load_ids(BASE_RUNS)
+    b = [bpb_key(r) for r in base]
+    v = [bpb_key(r) for r in rows if r["seed"] in (0, 1, 2)]
+    bm = statistics.mean(b)
+    print(f"  AdamW N49 11x576 (E02 s0-2): {bm:.4f} ({', '.join(f'{x:.4f}' for x in b)}), "
+          f"{statistics.mean(r['tokens_processed'] for r in base) / 1e6:.0f}M tokens, "
+          f"{statistics.mean(r['steps'] for r in base):.0f} steps, {statistics.mean(r['steady_tokens_per_s'] for r in base):.0f} tok/s")
+    for r in sorted(rows, key=lambda r: r["seed"]):
+        print(f"  {label} s{r['seed']}: {fmt_bpb(r)}  {r['tokens_processed'] / 1e6:.0f}M tokens, {r['steps']} steps, "
+              f"{r.get('steady_tokens_per_s') or 0:.0f} tok/s, AVG4 {_avg4(r):.4f}")
+    if len(v) >= 3:
+        d = statistics.mean(v) - bm
+        thr = 1.6 * SIGMA_FWE
+        verdict = "BETTER" if d < -thr else "WORSE" if d > thr else "inconclusive"
+        print(f"  3-seed mean {statistics.mean(v):.4f} (sd {statistics.stdev(v):.4f}), diff vs AdamW N49 {d:+.4f}; "
+              f"real if |diff| > 1.6 sigma60 = {thr:.4f} -> {verdict}")
+        return verdict
+    if len(v) == 2:
+        print(f"  2 of 3 seeds usable (mean {statistics.mean(v):.4f}, diff {statistics.mean(v) - bm:+.4f}): no verdict until "
+              "the third seed is in (a replaced run keeps its seed)")
+        return "WAIT"
+    if v:
+        d = v[0] - bm
+        thr = 2 * SIGMA_FWE * math.sqrt(1 + 1 / 3)
+        verdict = ("BETTER" if d < -thr else "WORSE" if d > thr else "CLOSE CALL")
+        print(f"  seed-0 diff {d:+.4f}; single vs 3-seed mean threshold {thr:.4f} -> "
+              + (verdict if verdict != "CLOSE CALL" else "within threshold: run seeds 1, 2 (close call)"))
+        return verdict
+    return None
+
+
+def _slow_checks(rows, pilots, label):
+    """Declared replacement rule (sec. 6): > 10 % below that configuration's pilot speed; other run checks as E02."""
+    ref = statistics.median(r["steady_tokens_per_s"] for r in pilots) if pilots else None
+    blocked = set()
+    for r in rows:
+        tps = r.get("steady_tokens_per_s")
+        rel = (tps / ref - 1) if (tps and ref) else None
+        other = [c for c in _run_checks(r, {}) if not c.startswith("speed")]
+        flag = ["SLOW MACHINE vs own pilots -> replace (same seed)"] if (rel is not None and rel < -0.10) else []
+        if flag or _blocking(other):
+            blocked.add(r["run_id"])
+        print(f"  checks {r['run_id']}: speed vs {label} pilots {rel:+.1%}" if rel is not None else
+              f"  checks {r['run_id']}: no pilot speed reference", ("; " + "; ".join(flag + other)) if flag + other else "")
+    if blocked:
+        print(f"  EXCLUDED until replaced (declared replacement rule; same seed, --fresh): {sorted(blocked)}")
+    return blocked
+
+
+def _fifteen_vs_adamw(pil_at_pick, label):
+    """R4e (descriptive): the same comparison at 15 min (training-duration dimension), pick vs AdamW's pick."""
+    ad = [bpb_key(r) for r in _load_ids(AD_PILOTS["2e-3"])]
+    v = [bpb_key(r) for r in pil_at_pick]
+    if ad and v and all(x < math.inf for x in v):
+        d = statistics.mean(v) - statistics.mean(ad)
+        thr = 2 * SIGMA15 * math.sqrt(1 / len(v) + 1 / len(ad))
+        print(f"  R4e at 15 min: {label} {statistics.mean(v):.4f} ({len(v)} seed(s)) vs AdamW 2e-3 {statistics.mean(ad):.4f} "
+              f"(3 seeds): {d:+.4f}; noise threshold 2 SE = {thr:.4f} (descriptive)")
+
+
+def _lr_curve(s0, label):
+    if not s0:
+        return
+    best = min(s0.values())
+    within = sorted(lr_tag(k) for k, v in s0.items() if v - best <= 2.8 * SIGMA15)
+    print(f"  LR sensitivity {label} (seed 0): " + ", ".join(f"{lr_tag(k)} {'DIVERGED' if v == math.inf else f'{v:.4f}'}"
+                                                         for k, v in sorted(s0.items()))
+          + f"; within 2.8 sigma15 of the best: {within}")
+
+
+def main_e05():
+    allr = load("E05")
+    runs = [r for r in allr if r["config"].get("optimizer") == "muon"]
+    ad_h = [r for r in allr if r["config"].get("optimizer", "adamw") == "adamw"]   # D30 conditional AdamW horizon runs
+    pil = [r for r in runs if r["budget_s"] == 900]
+    long = [r for r in runs if r["budget_s"] == FINAL_S]
+    mlr = lambda r: r["config"]["muon_lr"]
+    print("E05: Muon vs AdamW at N49 (11 x 576), 60 min. Rules D28 + D30.")
+    print("Muon pilots (15 min, final FineWeb-Edu val):")
+    for r in sorted(pil, key=lambda r: (mlr(r), r["seed"])):
+        print(f"  muon_lr {lr_tag(mlr(r))} s{r['seed']}: {fmt_bpb(r)}  {r.get('steady_tokens_per_s') or 0:.0f} tok/s, "
+              f"clipped {r.get('frac_steps_clipped') or 0:.1%}")
+    ad = {lr: _load_ids(ids) for lr, ids in AD_PILOTS.items()}
+    ad_s0 = {float(lr): bpb_key(v[0]) for lr, v in ad.items() if v and v[0]["seed"] == 0}
+    _lr_curve(ad_s0, "AdamW (E01 N49)")
+    pick, runner, note, s0 = _pick_lr(pil, mlr, E05_GRID)
+    _lr_curve(s0, "Muon")
+    print(f"R1 Muon LR pick: {lr_tag(pick) if pick else None} ({note})")
+    ad_p = [r for v in ad.values() for r in v]
+    if pil and ad_p:
+        mref = statistics.median(r["steady_tokens_per_s"] for r in pil)
+        aref = statistics.median(r["steady_tokens_per_s"] for r in ad_p)
+        print(f"  Muon throughput vs AdamW (15-min pilots, steady tokens/s): {mref:.0f} vs {aref:.0f} = {mref / aref - 1:+.1%} "
+              "(the time cost of Newton-Schulz on 44 matrices per step)")
+    if pick is None:
+        return
+    _fifteen_vs_adamw([r for r in pil if mlr(r) == pick and r["seed"] in (0, 1, 2)], "Muon")
+    # ---- horizon check (D30: the declared D07 protocol, as AdamW had) ----
+    horizon = [runner] + ([pick / 2] if runner == 2 * pick and (pick / 2) in s0 else [])
+    print(f"Horizon check (D07 as for AdamW): 60-min seed 0 at the pick {lr_tag(pick)} and at "
+          + ", ".join(lr_tag(h) for h in horizon) + f"; contradicted if another LR wins at 60 min by > 2.8 sigma15 = {2.8 * SIGMA15:.4f}")
+    at60 = {k: next((r for r in long if mlr(r) == k and r["seed"] == 0), None) for k in [pick] + horizon}
+    need = [k for k, r in at60.items() if r is None]
+    final_lr = pick
+    if need:
+        print("  LAUNCH (60 min, seed 0): " + ", ".join(f"configs/E05/N49_muon_lr{lr_tag(k)}_60min.yaml" for k in need)
+              + f"; together with seeds 1, 2 of N49_muon_lr{lr_tag(pick)}_60min.yaml")
+    else:
+        v60 = {k: bpb_key(r) for k, r in at60.items()}
+        print("  60 min seed 0: " + ", ".join(f"{lr_tag(k)} {v:.4f}" for k, v in v60.items()))
+        win = min(v60, key=v60.get)
+        if win != pick and v60[pick] - v60[win] > 2.8 * SIGMA15:
+            final_lr = win
+            print(f"  CONTRADICTED: {lr_tag(win)} wins at 60 min by {v60[pick] - v60[win]:.4f} -> Muon's final LR is "
+                  f"{lr_tag(win)}; run its seeds 1, 2 (the pick's 3 seeds are reported as well)")
+            # D30 fairness: AdamW N49 never had its own 60-min check (it inherited N26's); give it the same one now
+            base0 = next((r for r in _load_ids(BASE_RUNS) if r["seed"] == 0), None)
+            a60 = {r["config"]["lr"]: r for r in ad_h if r["budget_s"] == FINAL_S and r["seed"] == 0}
+            todo = [x for x in (1e-3, 4e-3) if x not in a60]
+            if todo:
+                print("  FAIRNESS (D30): AdamW N49 gets the same 60-min check -> LAUNCH seed 0: "
+                      + ", ".join(f"configs/E05/N49_adamw_lr{lr_tag(x)}_60min.yaml" for x in todo))
+            elif base0:
+                va = {2e-3: bpb_key(base0), **{k: bpb_key(r) for k, r in a60.items()}}
+                wa = min(va, key=va.get)
+                print("  AdamW N49 at 60 min, seed 0: " + ", ".join(f"{lr_tag(k)} {v:.4f}" for k, v in sorted(va.items())))
+                if wa != 2e-3 and va[2e-3] - va[wa] > 2.8 * SIGMA15:
+                    print(f"  AdamW ALSO CONTRADICTED: {lr_tag(wa)} wins -> run N49_adamw_lr{lr_tag(wa)}_60min seeds 1, 2; "
+                          "R2 then compares Muon with that AdamW arm (both with 60-min-checked LRs)")
+                else:
+                    print("  AdamW's 2e-3 stands at 60 min: R2 against E02-N49 as declared")
+        else:
+            print("  15-min pick stands (any flip is within noise)")
+    fin = [r for r in long if mlr(r) == final_lr]
+    if fin:
+        print(f"R3 infrastructure (vs Muon pilots' speed; Muon is slower than AdamW by design):")
+        blocked = _slow_checks(long, pil, "Muon")
+        fin = [r for r in fin if r["run_id"] not in blocked]
+        print(f"R2 decision (Muon at {lr_tag(final_lr)}, 60 min):")
+        verdict = _final_vs_adamw(fin, "Muon")
+        if verdict and len([r for r in fin if r["seed"] in (0, 1, 2)]) >= 3:
+            _diagnostics([r for r in fin if r["seed"] in (0, 1, 2)], _load_ids(BASE_RUNS), pil, ad_p, "Muon")
+        if final_lr != pick and [r for r in long if mlr(r) == pick]:
+            print(f"  (also reported: the 15-min pick {lr_tag(pick)} at 60 min)")
+            _final_vs_adamw([r for r in long if mlr(r) == pick and r["run_id"] not in blocked], f"Muon {lr_tag(pick)}")
+
+
+E06_SHAPES = {"6x768": "W6x768", "19x448": "D19x448"}
+
+
+def main_e06():
+    runs = load("E06")
+    pil = [r for r in runs if r["budget_s"] == 900]
+    fin = [r for r in runs if r["budget_s"] == FINAL_S]
+    shape = lambda r: f"{r['config']['n_layer']}x{r['config']['n_embd']}"
+    lr = lambda r: r["config"]["lr"]
+    print("E06: depth vs width at ~49M params, 60 min, AdamW (baseline N49 = 11 x 576). Rules D28 + D30.")
+    ad = {k: _load_ids(ids) for k, ids in AD_PILOTS.items()}
+    ad_p = [r for v in ad.values() for r in v]
+    _lr_curve({float(k): bpb_key(v[0]) for k, v in ad.items() if v}, "11x576 (E01 N49)")
+    if ad_p:
+        print(f"  11x576 pilots: {statistics.median(r['steady_tokens_per_s'] for r in ad_p):.0f} tok/s, "
+              f"MFU {statistics.median(r.get('mfu_steady') or 0 for r in ad_p):.3f}")
+    for sh, name in E06_SHAPES.items():
+        ps = [r for r in pil if shape(r) == sh]
+        print(f"\n{sh} pilots (15 min):")
+        for r in sorted(ps, key=lambda r: (lr(r), r["seed"])):
+            print(f"  lr {lr_tag(lr(r))} s{r['seed']}: {fmt_bpb(r)}  {r.get('steady_tokens_per_s') or 0:.0f} tok/s, "
+                  f"MFU {r.get('mfu_steady') or 0:.3f}, params {r['params']['total'] / 1e6:.1f}M "
+                  f"(non-emb {r['params']['non_embedding'] / 1e6:.1f}M)")
+        if ps and ad_p:
+            print(f"  speed vs 11x576: {statistics.median(r['steady_tokens_per_s'] for r in ps) / statistics.median(r['steady_tokens_per_s'] for r in ad_p) - 1:+.1%}")
+        pick, _, note, s0 = _pick_lr(ps, lr, E06_GRID)
+        _lr_curve(s0, sh)
+        print(f"R1 {sh} LR pick: {lr_tag(pick) if pick else None} ({note})")
+        if pick is None:
+            continue
+        _fifteen_vs_adamw([r for r in ps if lr(r) == pick and r["seed"] in (0, 1, 2)], sh)
+        rs = [r for r in fin if shape(r) == sh and lr(r) == pick]
+        other = [r for r in fin if shape(r) == sh and lr(r) != pick]
+        if other:
+            print(f"  NOTE: 60-min {sh} runs at a non-picked LR exist: {[r['run_id'] for r in other]} (not used)")
+        if not rs:
+            print(f"  LAUNCH: configs/E06/{name}_lr{lr_tag(pick)}_60min.yaml seed 0")
+            continue
+        print(f"R3 infrastructure {sh}:")
+        blocked = _slow_checks(rs, ps, sh)
+        rs = [r for r in rs if r["run_id"] not in blocked]
+        if not rs:
+            continue
+        print(f"R2 {sh} (60 min, lr {lr_tag(pick)}):")
+        verdict = _final_vs_adamw(rs, sh)
+        if verdict == "CLOSE CALL" and len(rs) < 3:
+            print(f"  LAUNCH: configs/E06/{name}_lr{lr_tag(pick)}_60min.yaml seeds 1, 2")
+        _diagnostics([r for r in rs if r["seed"] in (0, 1, 2)], _load_ids(BASE_RUNS), ps, ad_p, sh)
+
+
 if __name__ == "__main__":
     exp = sys.argv[1] if len(sys.argv) > 1 else "E01"
-    if exp in ("E02", "E03", "E04"):
-        {"E02": main_e02, "E03": main_e03, "E04": main_e04}[exp]()
+    if exp in ("E02", "E03", "E04", "E05", "E06"):
+        {"E02": main_e02, "E03": main_e03, "E04": main_e04, "E05": main_e05, "E06": main_e06}[exp]()
         sys.exit(0)
     main(exp)
     if exp == "E01":

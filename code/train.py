@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
+import inspect
 import json
 import math
 import os
@@ -281,6 +282,59 @@ class MixLoader:
         self._perm = [self._make_perm(c, self.epoch[c]) for c in range(self.n)]
 
 
+MUON_SUFFIXES = ("attn.c_attn.weight", "attn.c_proj.weight", "mlp.c_fc.weight", "mlp.c_proj.weight")
+
+
+class MuonAdamW:
+    """E05 (D28): torch.optim.Muon for the hidden 2-D weight matrices of every transformer block
+    (attention qkv and output, MLP in and out), AdamW for everything else (tied token embedding /
+    output head, position embedding: weight-decayed; LayerNorm weights: not), exactly as the AdamW
+    baseline treats them. Exposes the small optimizer interface train.py uses. Muon param groups carry
+    lr_scale = muon_lr / lr, so the one warmup/cosine schedule drives both optimizers."""
+
+    def __init__(self, model, cfg, device_type):
+        named = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
+        muon_p = [p for n, p in named if n.endswith(MUON_SUFFIXES) and p.dim() == 2]
+        ids = {id(p) for p in muon_p}
+        rest = [(n, p) for n, p in named if id(p) not in ids]
+        decay = [p for _, p in rest if p.dim() >= 2]
+        nodecay = [p for _, p in rest if p.dim() < 2]
+        fused = device_type == "cuda" and "fused" in inspect.signature(torch.optim.AdamW).parameters
+        self.adamw = torch.optim.AdamW([{"params": decay, "weight_decay": cfg.weight_decay},
+                                        {"params": nodecay, "weight_decay": 0.0}],
+                                       lr=cfg.lr, betas=(cfg.beta1, cfg.beta2),
+                                       **(dict(fused=True) if fused else {}))
+        self.muon = torch.optim.Muon(muon_p, lr=cfg.muon_lr, weight_decay=cfg.weight_decay,
+                                     momentum=cfg.muon_momentum, nesterov=True,
+                                     ns_steps=cfg.muon_ns_steps, adjust_lr_fn=cfg.muon_adjust_lr)
+        for g in self.muon.param_groups:
+            g["lr_scale"] = cfg.muon_lr / cfg.lr
+        self.counts = dict(muon_tensors=len(muon_p), muon_params=sum(p.numel() for p in muon_p),
+                           adamw_params=sum(p.numel() for _, p in rest),
+                           muon_names=[n for n, p in named if id(p) in ids][:4])
+        print(f"Muon on {self.counts['muon_tensors']} matrices ({self.counts['muon_params']:,} params); "
+              f"AdamW on {self.counts['adamw_params']:,} params", flush=True)
+
+    @property
+    def param_groups(self):
+        return self.adamw.param_groups + self.muon.param_groups
+
+    def step(self):
+        self.adamw.step()
+        self.muon.step()
+
+    def zero_grad(self, set_to_none=True):
+        self.adamw.zero_grad(set_to_none=set_to_none)
+        self.muon.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self):
+        return dict(adamw=self.adamw.state_dict(), muon=self.muon.state_dict())
+
+    def load_state_dict(self, s):
+        self.adamw.load_state_dict(s["adamw"])
+        self.muon.load_state_dict(s["muon"])
+
+
 def lr_at(cfg: Config, step: int, counted: float, t_warm_end: float | None) -> float:
     if step < cfg.warmup_steps:
         return cfg.lr * (step + 1) / cfg.warmup_steps
@@ -478,7 +532,10 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
     model = GPT(GPTConfig(n_layer=cfg.n_layer, n_head=cfg.n_head, n_embd=cfg.n_embd,
                           block_size=cfg.block_size, vocab_size=cfg.vocab_size,
                           dropout=cfg.dropout, bias=cfg.bias)).to(device)
-    optimizer = model.configure_optimizers(cfg.weight_decay, cfg.lr, (cfg.beta1, cfg.beta2),
+    if cfg.optimizer == "muon":
+        optimizer = MuonAdamW(model, cfg, device)
+    else:
+        optimizer = model.configure_optimizers(cfg.weight_decay, cfg.lr, (cfg.beta1, cfg.beta2),
                                            device)
     if mix:
         loader = MixLoader(pools, [w for _, w in mix], seed)
@@ -560,7 +617,7 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
             break
         lr = lr_at(cfg, st["step"], t, st["t_warm_end"])
         for g in optimizer.param_groups:
-            g["lr"] = lr
+            g["lr"] = lr * g.get("lr_scale", 1.0)   # Muon groups (E05); AdamW groups: lr unchanged
         t_step = time.perf_counter()
         for _ in range(cfg.grad_accum):
             batch = loader.next_batch(cfg.micro_batch)
@@ -687,6 +744,7 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
                            first_window_ids=[int(x) for x in window_ids[:5]],
                            shifted_windows=bool(cfg.train_subset_shift))
                       if window_ids is not None else None),
+        optimizer_info=dict(name=cfg.optimizer, **(getattr(optimizer, "counts", None) or {})),
         corpus_mix=(dict(corpora=mix_info, windows_drawn=loader.state()["drawn"],
                          realised_share=[round(d / max(1, sum(loader.state()["drawn"])), 5)
                                          for d in loader.state()["drawn"]],

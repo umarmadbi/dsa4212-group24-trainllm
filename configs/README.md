@@ -73,6 +73,21 @@ number used for decisions; FineWeb, DCLM and Wikipedia are extra information, sc
 | `N17_U36M.yaml`, `N26_U36M.yaml`, `N65_U36M.yaml` | Follow-up F2 (D26): other model sizes on the same 36.25M-token subset as `N49_rep8.yaml`. Which size is best when unique data is limited? Seed 0 |
 | `N49_rep8_shift.yaml` | Follow-up F3 (D26): as `N49_rep8.yaml`, but the window boundaries move every pass (`train_subset_shift`). Does showing identical samples every pass cause the damage? Seed 0 |
 
+## E05/: Muon vs AdamW (Phase 4a)
+
+| Files | What they are |
+|---|---|
+| `N49_muon_lr{1e-3,2e-3,4e-3,8e-3}_15min.yaml` | Muon learning-rate pilots at N49 (15 min, seed 0), the same protocol AdamW got in E01 |
+| `N49_adamw_lr{1e-3,4e-3}_60min.yaml` | CONDITIONAL (D30): AdamW N49 for 60 min at its two neighbouring LRs, run only if Muon's horizon check is contradicted, so both optimisers get the same 60-min LR check |
+| `N49_muon_lr{1e-3,2e-3,4e-3,8e-3}_60min.yaml` | N49 with Muon for 60 minutes, one file per LR (D30: no placeholder to edit). The pilot pick is run with seeds 0-2 (the final comparison with E02-N49, AdamW); the horizon-check LR(s) with seed 0. `python code/summarize.py E05` prints which to launch |
+
+## E06/: depth vs width (Phase 4b)
+
+| Files | What they are |
+|---|---|
+| `W6x768_lr*_15min.yaml`, `D19x448_lr*_15min.yaml` | Learning-rate pilots (5e-4, 1e-3, 2e-3, 4e-3; the declared E01 protocol, D30) for a shallow-wide (6 x 768) and a deep-narrow (19 x 448) model of N49's size |
+| `W6x768_lr*_60min.yaml`, `D19x448_lr*_60min.yaml` | The two shapes for 60 minutes, one file per LR; only the picked LR is run (seed 0; seeds 1, 2 on a close call). Compared with N49 (11 x 576). `python code/summarize.py E06` prints which to launch |
+
 ## Settings (every field a config can have)
 
 Fields left out take the default from `code/config.py`. Unknown fields are rejected.
@@ -87,6 +102,9 @@ Fields left out take the default from `code/config.py`. Unknown fields are rejec
 | `train_subset_shift` | false | With `train_subset_tokens`: move the window boundaries every pass (E04 F3, D26) |
 | `corpus_mix` | [] | Mix corpora by token share, e.g. `["fineweb_edu=0.6", "dclm=0.4"]`; needs `corpus: mix` (E03 mixture, D26) |
 | `mix_pool_tokens` | 1,000,000,000 | Size of each corpus's random pool in a mixture |
+| `optimizer` | adamw | `adamw` (baseline) or `muon` (Muon on the hidden block matrices, AdamW for the rest; E05) |
+| `muon_lr` | 0 | Peak Muon learning rate (needed for `muon`); the same warm-up/cosine schedule |
+| `muon_momentum`, `muon_ns_steps`, `muon_adjust_lr` | 0.95, 5, match_rms_adamw | Muon settings (PyTorch defaults; update size matched to AdamW) |
 | `eval_corpora` | `[fineweb_edu]` | Validation splits scored at the end; the first one is the headline number |
 | `curve_corpus`, `curve_tokens` | `fineweb_edu`, 262,144 | Small validation subset scored during training for the learning curve |
 | `n_layer`, `n_head`, `n_embd` | | Model shape (layers, attention heads, width) |

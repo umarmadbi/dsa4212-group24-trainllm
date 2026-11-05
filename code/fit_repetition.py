@@ -39,7 +39,9 @@ def runs():
     out = []
     for f in sorted(Path("results/runs").glob("E04-*.json")):
         r = json.loads(f.read_text())
-        if r["budget_s"] == 3600 and not r.get("diverged"):
+        # only the N49 dose-response runs (D29: the F2 follow-ups are other sizes, F3 has shifted windows)
+        if (r["budget_s"] == 3600 and not r.get("diverged") and r["run_id"].startswith("E04-N49_rep")
+                and not r["config"].get("train_subset_shift")):
             out.append(r)
     return out
 

@@ -396,6 +396,30 @@ def test_corpus_mix(d: Path, out: Path):
         raise AssertionError(f"accepted {bad}")
 
 
+def test_muon_optimizer(d: Path, out: Path):
+    """E05 (D28): Muon gets exactly the hidden block matrices, AdamW the rest; one schedule drives both
+    (Muon lr = muon_lr/lr x AdamW lr); the model learns; crash-resume is exact."""
+    import train as TR
+    cfg = tiny_cfg(optimizer="muon", muon_lr=6e-3)
+    m = GPT(GPTConfig(n_layer=cfg.n_layer, n_head=cfg.n_head, n_embd=cfg.n_embd, block_size=cfg.block_size,
+                      vocab_size=cfg.vocab_size, dropout=0.0, bias=False))
+    opt = TR.MuonAdamW(m, cfg, "cpu")
+    assert opt.counts["muon_tensors"] == 4 * cfg.n_layer
+    names = {n for n, p in m.named_parameters() if any(p is q for g in opt.muon.param_groups for q in g["params"])}
+    assert all(n.startswith("transformer.h.") and n.endswith(TR.MUON_SUFFIXES) for n in names)
+    assert opt.counts["muon_params"] + opt.counts["adamw_params"] == sum(p.numel() for p in m.parameters())
+    assert abs(opt.muon.param_groups[0]["lr_scale"] - 2.0) < 1e-12
+    a = _crash_resume_equal(d, out, "muon", optimizer="muon", muon_lr=6e-3)
+    assert a["optimizer_info"]["name"] == "muon" and a["final_val_bpb"] < a["curve"][0]["val_bpb"] - 0.1   # learns
+    for bad in (dict(optimizer="muon"), dict(optimizer="sgd")):
+        try:
+            from config import load_config
+            load_config(None, bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted {bad}")
+
+
 if __name__ == "__main__":
     tmp = Path(tempfile.mkdtemp())
     d, out = tmp / "data", tmp / "runs"
@@ -413,6 +437,7 @@ if __name__ == "__main__":
              ("random nested training subsets (E04)", test_random_nested_subsets, (d, out)),
              ("shifted windows per pass (E04 F3)", test_shifted_subset, (d, out)),
              ("corpus mixture: shares, pools, resume (E03 R8)", test_corpus_mix, (d, out)),
+             ("Muon optimizer: parameter split, schedule, resume (E05)", test_muon_optimizer, (d, out)),
              ("13-gram contamination check = brute force (E03 R3)", test_contamination_check, ()),
              ("rescore reproduces stored BPB; document removal", test_rescore_reproduces_and_excludes, (d, out)),
              ("all config files load with correct types", test_all_config_files_load, ()),

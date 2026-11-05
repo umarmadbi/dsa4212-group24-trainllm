@@ -1,0 +1,26 @@
+# E06 (D28, revised D30) 60-MIN RUN under the declared budget: shape 19x448 at N49's parameter count, AdamW.
+# One file per LR (no placeholder): the 15-min pilots pick the LR with the declared protocol (4 values, edge and
+# close-call rules); python code/summarize.py E06 prints which file to launch. Compared with E02-N49 (11 x 576) s0-2.
+run_id: E06-D19x448_lr2e-3_60min
+experiment: E06
+corpus: fineweb_edu
+eval_corpora: [fineweb_edu, fineweb, dclm, wikipedia]
+n_layer: 19
+n_head: 7
+n_embd: 448
+block_size: 512
+vocab_size: 8192
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 2.0e-03
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 3600
+eval_every_frac: 0.05
+ckpt_every_s: 600
+compile: true
+dtype: bfloat16

@@ -1,0 +1,28 @@
+# E05 (D28) learning-rate pilot for Muon at N49 (preliminary work, excluded from the per-run budget). Same
+# protocol AdamW got in E01: 4 peak LRs factor 2 apart, 15 min each (schedule compressed to 15 min), lowest final
+# FineWeb-Edu val wins; edge and close-call rules as declared. Muon (torch.optim.Muon, update RMS matched to AdamW)
+# on the hidden block matrices; embeddings + LayerNorm on AdamW at the baseline's tuned 2e-3.
+run_id: E05-N49_muon_lr8e-3_15min
+experiment: E05
+corpus: fineweb_edu
+optimizer: muon
+muon_lr: 8.0e-03               # the value being tuned (Muon matrices)
+n_layer: 11
+n_head: 9
+n_embd: 576
+block_size: 512
+vocab_size: 8192
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 2.0e-03
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 900
+eval_every_frac: 0.05
+ckpt_every_s: 300
+compile: true
+dtype: bfloat16

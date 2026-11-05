@@ -36,6 +36,13 @@ class Config:
     # needs corpus: mix. Each corpus contributes a random pool of mix_pool_tokens (nested-subset key).
     corpus_mix: list = field(default_factory=list)
     mix_pool_tokens: int = 1_000_000_000
+    # E05 (D28): "adamw" (declared baseline) or "muon" (torch.optim.Muon on the hidden 2-D matrices of the
+    # transformer blocks; embeddings and LayerNorm weights stay on AdamW with lr/betas/weight_decay above)
+    optimizer: str = "adamw"
+    muon_lr: float = 0.0                   # peak Muon LR (same warmup/cosine schedule); required for muon
+    muon_momentum: float = 0.95
+    muon_ns_steps: int = 5
+    muon_adjust_lr: str = "match_rms_adamw"   # update RMS matched to AdamW (Liu et al. 2025, "Muon is Scalable")
     eval_corpora: list = field(default_factory=lambda: ["fineweb_edu"])  # full val at the end
     curve_corpus: str = "fineweb_edu"      # fixed subset scored during training
     curve_tokens: int = 262_144            # ~1 MB of FineWeb-Edu text at 3.87 bytes/token
@@ -127,6 +134,10 @@ def load_config(path: str | None, overrides: dict | None = None) -> Config:
         raise ValueError(f"schedule must be 'time' or 'steps', got {cfg.schedule!r}")
     if cfg.schedule == "steps" and not cfg.max_steps:
         raise ValueError("schedule 'steps' needs max_steps")
+    if cfg.optimizer not in ("adamw", "muon"):
+        raise ValueError(f"optimizer must be 'adamw' or 'muon', got {cfg.optimizer!r}")
+    if cfg.optimizer == "muon" and cfg.muon_lr <= 0:
+        raise ValueError("optimizer 'muon' needs muon_lr > 0")
     if cfg.dtype not in ("bfloat16", "float32"):
         raise ValueError(f"dtype must be bfloat16 or float32, got {cfg.dtype!r}")
     return cfg
