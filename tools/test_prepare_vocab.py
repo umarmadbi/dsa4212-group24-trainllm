@@ -109,6 +109,14 @@ def main():
         print(f"PASS  vocab 900: same documents and bytes, fewer tokens; manifest paths point at the final directory "
               f"(nesting of merges: {m900[:len(m400)] == m400}, descriptive)")
 
+        # data root reached through a link (as /data on Modal): manifest paths must use the link, not the target
+        link = Path(t) / "datalink"; link.symlink_to(root)
+        V.build(str(link), 900, tok_mb, name="vialink")
+        vl = json.loads((root / "vocab" / "vialink" / "manifest.json").read_text())
+        files = {e["file"] for sp in vl["tokens"]["splits"].values() for e in sp.values()}
+        assert all(f.startswith(str(link / "vocab" / "vialink")) for f in files), sorted(files)[:2]
+        print("PASS  data root via a link: manifest records the link path (as /data/... on Modal)")
+
         # 2. baseline untouched
         assert tree_hashes(root) == before, "baseline files changed"
         assert not list((root / "vocab").glob(".tmp_*")), "temporary directory left behind"

@@ -1,0 +1,15 @@
+{
+  "bpe_vocab_size": 32767,
+  "eot_id": 32767,
+  "eot_note": "<|endoftext|> is not a tokenizer token; id appended by prepare_data.py",
+  "token_bytes_sha256": "b8b6be4f05ba2037bb66ac3e53cf4468fc838b09188b5903c341f42ef9ef45fa",
+  "tokenizer_json_sha256": "7893a8749685c172adeec24af77d5471800e8857b09b7c74f79719a8a422073d",
+  "tokenizers_version": "0.23.3",
+  "trained_on": {
+    "dclm": 200000000,
+    "fineweb": 200000000,
+    "fineweb_edu": 200000000
+  },
+  "type": "byte-level BPE (HF tokenizers)",
+  "vocab_size": 32768
+}

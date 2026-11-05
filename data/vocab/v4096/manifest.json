@@ -1,0 +1,531 @@
+{
+  "build_seconds": 677,
+  "builder": "tools/prepare_vocab.py",
+  "builder_version": 1,
+  "corpora": {
+    "dclm": {
+      "docs_scanned": 61000,
+      "eval_source_files": [
+        "global-shard_01_of_10/local-shard_0_of_10/shard_00000000_processed.jsonl.zst"
+      ],
+      "exact_dups_in_eval_source": 16,
+      "n_source_files_available": 279,
+      "prefix": "global-shard_01_of_10/local-shard_0_of_10",
+      "repo": "mlfoundations/dclm-baseline-1.0",
+      "revision": "a3b142c183aebe5af344955ae20836eb34dcf69b",
+      "role": "train",
+      "test": {
+        "docs": 1966,
+        "file": "/data/text/dclm/test.jsonl",
+        "sha256": "e53a11395c37c2f23069805a8532cc60f1a08f845a6eff694e893f3c22eaa8b9",
+        "utf8_bytes": 10000197
+      },
+      "train": {
+        "docs": 1728925,
+        "files_used": [
+          {
+            "docs_taken": 57130,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000000_processed.jsonl.zst",
+            "size": 141306362,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 90301,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000001_processed.jsonl.zst",
+            "size": 218055028,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 92902,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000002_processed.jsonl.zst",
+            "size": 234064161,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 98889,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000003_processed.jsonl.zst",
+            "size": 237981257,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 88509,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000004_processed.jsonl.zst",
+            "size": 213149705,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 85468,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000005_processed.jsonl.zst",
+            "size": 195564488,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 95952,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000006_processed.jsonl.zst",
+            "size": 218087763,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 85384,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000007_processed.jsonl.zst",
+            "size": 199688347,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 105479,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000008_processed.jsonl.zst",
+            "size": 256311356,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 77316,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000009_processed.jsonl.zst",
+            "size": 186806829,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 84302,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000010_processed.jsonl.zst",
+            "size": 199343638,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 100020,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000011_processed.jsonl.zst",
+            "size": 254737941,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 89134,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000012_processed.jsonl.zst",
+            "size": 214546638,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 92212,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000013_processed.jsonl.zst",
+            "size": 212891129,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 92065,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000014_processed.jsonl.zst",
+            "size": 222792106,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 86683,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000015_processed.jsonl.zst",
+            "size": 209521249,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 57698,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000016_processed.jsonl.zst",
+            "size": 129288133,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 87034,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000017_processed.jsonl.zst",
+            "size": 205422460,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 95163,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000018_processed.jsonl.zst",
+            "size": 217774885,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 67284,
+            "path": "global-shard_01_of_10/local-shard_0_of_10/shard_00000019_processed.jsonl.zst",
+            "size": 200459765,
+            "whole_file": false
+          }
+        ],
+        "shard_sha256": [
+          "dfba8505cd9797c516f775dea8c22dd431c942ba254bb0b238b10d609877250f",
+          "79225b74036e5d015604cf9ff40790268e51182e340ad8d5c9ae9247f8b906fe",
+          "40a66becf254e1fee33f6bb4de0f603be4532a64d85b1bc91abefb68dbb67d94",
+          "ad47c4a90e05d2509e4b9dfdd17b25cba535ca3eda9376e722db444038d95716",
+          "a62a68901eb0a8a6c7aa10ebc16b3293af2b19cf621d7bead8d8bba4322ab78d",
+          "9fb2459324d009f197daf66636ab1e13dce60571066dfd1bbf83cfae83f82eaa",
+          "0bbe2eb4fc659c03e96621735961c114c4e582960a7f17f498a319751e6f5789",
+          "2b74be4dcf5a10491fdb49f5b3f0efe7fbf61e0f4040a746c352b5213f6072c8",
+          "74b40f9de1adb1ace0505caa87271b7dbe44e7c04cd8fd6a85fba6c56b528908",
+          "f648ae88a966b40433bdf3725b76e60c2963044a1a0be375cd37e51212dbfbf2",
+          "d8320d53dbed086adfa1dcdb0f7be0252e35d2de23b6adf88a6cf6163db1ee3c",
+          "006c63db7b3aba6dab4032bc7abfc739e02fee226a2a702f6f1b1a21935a2e88",
+          "dcf8a0a65191494f2e9d497a06bd801f4c3a399418e78044d31a06632de22f23",
+          "33865d02d270816a654a4fdd24a73d92d84fe0024b740872ffbf8770d9aa0116",
+          "003fbe580ddae3cc085433df235d4ca998ff5458de39b3edbdd5454806a29c64",
+          "c29e8fdafa5a02d951845d18551853529687ee302b3f7f97664db1090e693a89",
+          "4899b75affc30687b28231606138d894c91440e8b81ed485f806706f88252c9b",
+          "76e34adee5007f09ae00e7b67e54db1044fa7f55c89be2452901e8f0b7d1049b",
+          "73496c8c9436c834146a8d9232a7478668964e575f2006a1e6465b97bc73c2ff"
+        ],
+        "shards": [
+          "/data/text/dclm/train_00000.jsonl",
+          "/data/text/dclm/train_00001.jsonl",
+          "/data/text/dclm/train_00002.jsonl",
+          "/data/text/dclm/train_00003.jsonl",
+          "/data/text/dclm/train_00004.jsonl",
+          "/data/text/dclm/train_00005.jsonl",
+          "/data/text/dclm/train_00006.jsonl",
+          "/data/text/dclm/train_00007.jsonl",
+          "/data/text/dclm/train_00008.jsonl",
+          "/data/text/dclm/train_00009.jsonl",
+          "/data/text/dclm/train_00010.jsonl",
+          "/data/text/dclm/train_00011.jsonl",
+          "/data/text/dclm/train_00012.jsonl",
+          "/data/text/dclm/train_00013.jsonl",
+          "/data/text/dclm/train_00014.jsonl",
+          "/data/text/dclm/train_00015.jsonl",
+          "/data/text/dclm/train_00016.jsonl",
+          "/data/text/dclm/train_00017.jsonl",
+          "/data/text/dclm/train_00018.jsonl"
+        ],
+        "skipped_exact_dup_of_any_eval_doc": 0,
+        "skipped_own_eval_docs": 3870,
+        "utf8_bytes": 9500003813,
+        "within_train_exact_dups_kept": 748
+      },
+      "val": {
+        "docs": 1904,
+        "file": "/data/text/dclm/val.jsonl",
+        "sha256": "5b518573a3825fb5de4c9fbd32eb48d41e04323f192d7c373e8094796b95e960",
+        "utf8_bytes": 10010494
+      }
+    },
+    "fineweb": {
+      "docs_scanned": 1048581,
+      "eval_source_files": [
+        "sample/10BT/000_00000.parquet"
+      ],
+      "exact_dups_in_eval_source": 164,
+      "n_source_files_available": 15,
+      "prefix": "sample/10BT",
+      "repo": "HuggingFaceFW/fineweb",
+      "revision": "9bb295ddab0e05d785b879661af7260fed5140fc",
+      "role": "train",
+      "test": {
+        "docs": 3284,
+        "file": "/data/text/fineweb/test.jsonl",
+        "sha256": "602b1e77f40eed0b2ff9c14eb93d53b8f74972371db29a7e0d2a9678a219ae24",
+        "utf8_bytes": 10019493
+      },
+      "train": {
+        "docs": 3085610,
+        "files_used": [
+          {
+            "docs_taken": 1042240,
+            "path": "sample/10BT/000_00000.parquet",
+            "size": 2147292183,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 1046608,
+            "path": "sample/10BT/001_00000.parquet",
+            "size": 2146714409,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 996762,
+            "path": "sample/10BT/002_00000.parquet",
+            "size": 2148105492,
+            "whole_file": false
+          }
+        ],
+        "shard_sha256": [
+          "13d94f8d59ea72e3d879228180fb0a4b5122d725a0c77e1ae3ae72d56eed8efb",
+          "6109ace7d0db8f768e7e1e3b81480befb60bc4fd35959cadb106cc5b94ae19d6",
+          "df74df90d829d8f91c6b8fcd623fe70eba087a36576007137ed71238476e389f",
+          "4fe2a721a39dda462b8f5b8d5c8cee600b3549837c71b1f56567b081a71885ee",
+          "c0851951adcc6df6067cac94dd3b143098542a9da5078ab0bccc7b83c9ce5ef1",
+          "4cb924f0b5c855ef18204f48686323b93e9b615ae2948b60ca50ae5265e136fe",
+          "d96639a455bf83c2a950b74cad55da2dde4cfd06b8c8056f96b8ee6f5a989805",
+          "483a4cb0d02bd39d7b2264bdfa2e70c75ad686ba70f6f5c05f819873762a29e5",
+          "b65594da10ee3f6353af229f169a884e43b329bae736d43ea94027d9f0b771ee",
+          "6b69ff913218c4da0d86c058cae94155f0d47b693af77f561c4cf475997cfaaa",
+          "d9b1ae6d62e15c9eafe46db3bd18abd0948ad1ccba6c624d958eeb837db58dad",
+          "9c4e3517e4570b08a6eb90b34c08a9bf62df930017f5ee93d41b8f290480cc9b",
+          "aaa8fbc389ba8c077726a041d541aa8f3f402621cc6a159ad9ead02d45a2f51b",
+          "aea9e736a4b3ebf6c5c8673f72f2b4e9c8944fe95a74342aee4bb6ab0a6cfeee",
+          "dd15a3f3c3b909e176ba0f82b21dde84844aec2689698a4fb1e115a4d043e19d",
+          "74488a04e189372ea98a8ac2ff3c5553074986c984f218cfc9a331368979285a",
+          "261bd8b10165e4067b12f5810238a1e783d69dd5ed4631721844483874d4a1e0",
+          "3083d98e34a106f6efcf7c8dc14217d1821e99518cf5f6de924f546d6a43a35a",
+          "60e951f781fca07232004d4096fc3e06cd0480c656e7aed815c3e97976138f9f"
+        ],
+        "shards": [
+          "/data/text/fineweb/train_00000.jsonl",
+          "/data/text/fineweb/train_00001.jsonl",
+          "/data/text/fineweb/train_00002.jsonl",
+          "/data/text/fineweb/train_00003.jsonl",
+          "/data/text/fineweb/train_00004.jsonl",
+          "/data/text/fineweb/train_00005.jsonl",
+          "/data/text/fineweb/train_00006.jsonl",
+          "/data/text/fineweb/train_00007.jsonl",
+          "/data/text/fineweb/train_00008.jsonl",
+          "/data/text/fineweb/train_00009.jsonl",
+          "/data/text/fineweb/train_00010.jsonl",
+          "/data/text/fineweb/train_00011.jsonl",
+          "/data/text/fineweb/train_00012.jsonl",
+          "/data/text/fineweb/train_00013.jsonl",
+          "/data/text/fineweb/train_00014.jsonl",
+          "/data/text/fineweb/train_00015.jsonl",
+          "/data/text/fineweb/train_00016.jsonl",
+          "/data/text/fineweb/train_00017.jsonl",
+          "/data/text/fineweb/train_00018.jsonl"
+        ],
+        "skipped_exact_dup_of_any_eval_doc": 3,
+        "skipped_own_eval_docs": 6348,
+        "utf8_bytes": 9500009029,
+        "within_train_exact_dups_kept": 2063
+      },
+      "val": {
+        "docs": 3057,
+        "file": "/data/text/fineweb/val.jsonl",
+        "sha256": "297681d25131f29230fee65e04ed557b9754441ff5ba84287e73b7a3f1e8ba44",
+        "utf8_bytes": 10004208
+      }
+    },
+    "fineweb_edu": {
+      "docs_scanned": 726000,
+      "eval_source_files": [
+        "sample/10BT/000_00000.parquet"
+      ],
+      "exact_dups_in_eval_source": 1489,
+      "n_source_files_available": 14,
+      "prefix": "sample/10BT",
+      "repo": "HuggingFaceFW/fineweb-edu",
+      "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+      "role": "train",
+      "test": {
+        "docs": 2038,
+        "file": "/data/text/fineweb_edu/test.jsonl",
+        "sha256": "e4abf7c5e3fbd0fa8ba73cc5060d78f82f43eebb2b5fbf7b074e3d7b5bca009a",
+        "utf8_bytes": 10010792
+      },
+      "train": {
+        "docs": 1989958,
+        "files_used": [
+          {
+            "docs_taken": 721973,
+            "path": "sample/10BT/000_00000.parquet",
+            "size": 2152819114,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 728974,
+            "path": "sample/10BT/001_00000.parquet",
+            "size": 2152222432,
+            "whole_file": true
+          },
+          {
+            "docs_taken": 539011,
+            "path": "sample/10BT/002_00000.parquet",
+            "size": 2151796315,
+            "whole_file": false
+          }
+        ],
+        "shard_sha256": [
+          "fa2abaa650a472f1b9c2c7f6ef668f920db852f199783f6346dfa2b7687b95bd",
+          "113083a18b5df0b2104bd831ddca66e1dffd87c94a197b5560fe56d39632cb97",
+          "e882805c9962df2abf6cf39b1e420905d17a2ee592652ae8d3cabb9d91c1963d",
+          "7c67a80312743a84352c9aa2f053d16906d0e511dd8481c16920521a2bbecdfa",
+          "c6298e47731db9b9822cdc45a6497bce8a6b0cedc95088e485a0de56a4d588e6",
+          "81d220ba243d43e95f8c3978621e1a24a86e048ff30b6a8fd2f0490e485ad4ed",
+          "72469d8848bb0369f7c4beca1d2ba5501b0c4c8d584a643838c05f9188e01afe",
+          "39623866e4ebe56ac00e974a9aa3bd2abcd66779d04cca1f8bc77da761fb2ec3",
+          "581893b1e9daf1fb6e54482f860ed3fe7e9718992e6ed6313cd4dbee2908d511",
+          "eb93a5ec3c3e7f6db9f15866ccf4fa6fad3db0801d1a504461829ac54bb8b8b4",
+          "156c0af4025a1d7075a3a04ac286b9e3bf740f36d9d4a29df4d8e7712458bfee",
+          "6cdb806158e220371d5f9f298d10d840c46503d4c3bd094a4bcdf200e1f1905e",
+          "6c129fc69eec2092c742e59a2dfc7527c66029ec5f9aab78a8c88161c2920783",
+          "af6e162de837d5d474ed1719ab08b86340c4bd0bf4faf554bfa4cd70af99a2c1",
+          "7087933e79a1692b7898a96159772e45661be18a0a11ebe2ea6046d482e0e2b4",
+          "6713d346211690742faf8c27a184babfbb9d57dbee3654e030cf0588db8fc951",
+          "1b9bce5ea170a498f337fca358102da3fe18d878f99f767da568403e41a6b9d1",
+          "507919e02a316b8251156ccfcd3fe6a829c7ac93e495e15f3535ed35fb7aaf66",
+          "84ee09ec75863038c79a7eedee196d184e8f4b7716571e37e08ceba1d9e59f61"
+        ],
+        "shards": [
+          "/data/text/fineweb_edu/train_00000.jsonl",
+          "/data/text/fineweb_edu/train_00001.jsonl",
+          "/data/text/fineweb_edu/train_00002.jsonl",
+          "/data/text/fineweb_edu/train_00003.jsonl",
+          "/data/text/fineweb_edu/train_00004.jsonl",
+          "/data/text/fineweb_edu/train_00005.jsonl",
+          "/data/text/fineweb_edu/train_00006.jsonl",
+          "/data/text/fineweb_edu/train_00007.jsonl",
+          "/data/text/fineweb_edu/train_00008.jsonl",
+          "/data/text/fineweb_edu/train_00009.jsonl",
+          "/data/text/fineweb_edu/train_00010.jsonl",
+          "/data/text/fineweb_edu/train_00011.jsonl",
+          "/data/text/fineweb_edu/train_00012.jsonl",
+          "/data/text/fineweb_edu/train_00013.jsonl",
+          "/data/text/fineweb_edu/train_00014.jsonl",
+          "/data/text/fineweb_edu/train_00015.jsonl",
+          "/data/text/fineweb_edu/train_00016.jsonl",
+          "/data/text/fineweb_edu/train_00017.jsonl",
+          "/data/text/fineweb_edu/train_00018.jsonl"
+        ],
+        "skipped_exact_dup_of_any_eval_doc": 5,
+        "skipped_own_eval_docs": 4073,
+        "utf8_bytes": 9500000285,
+        "within_train_exact_dups_kept": 15229
+      },
+      "val": {
+        "docs": 1981,
+        "file": "/data/text/fineweb_edu/val.jsonl",
+        "sha256": "4f46cd783cd276933f7fe01fd1d9d5a85aa7672f51eab573b412fdc38a3a859f",
+        "utf8_bytes": 10001828
+      }
+    },
+    "wikipedia": {
+      "docs_scanned": 468865,
+      "eval_source_files": [
+        "20231101.en/train-00000-of-00041.parquet",
+        "20231101.en/train-00013-of-00041.parquet",
+        "20231101.en/train-00027-of-00041.parquet"
+      ],
+      "exact_dups_in_eval_source": 67,
+      "n_source_files_available": 41,
+      "prefix": "20231101.en",
+      "repo": "wikimedia/wikipedia",
+      "revision": "b04c8d1ceb2f5cd4588862100d08de323dccfbaa",
+      "role": "eval_only",
+      "test": {
+        "docs": 3350,
+        "file": "/data/text/wikipedia/test.jsonl",
+        "sha256": "d3bc5983dd183ca54e9e99a11fdd4c8b6d5156443c9758ea417771a1872afcbb",
+        "utf8_bytes": 10000624
+      },
+      "val": {
+        "docs": 3173,
+        "file": "/data/text/wikipedia/val.jsonl",
+        "sha256": "8cc0bcce4e02566a788d7b1fd42c9f522b8887dddeacaf1ca6fd4907301eaa3d",
+        "utf8_bytes": 10000178
+      }
+    }
+  },
+  "created_utc": "2026-11-05T11:21:12Z",
+  "derived_from": {
+    "baseline_tokenizer_sha256": "3017aa1d6f9e8354bc294b2c73fe2e8c7e8610ceebf74f48ab091541d2cc5e40",
+    "manifest": "/data/manifest.json",
+    "manifest_sha256": "3d3b6d770ddcb2f5bf1d2f469e33627ca224279cd9adc173fe43695ddc3c3ba6"
+  },
+  "tokenizer": {
+    "bpe_vocab_size": 4095,
+    "eot_id": 4095,
+    "eot_note": "<|endoftext|> is not a tokenizer token; id appended by prepare_data.py",
+    "token_bytes_sha256": "8f12d31f0629eee38fd0ca4c169f91e25b1bd8a47bc496501ce2aa26ba64d226",
+    "tokenizer_json_sha256": "3c75c2c3e6528482d0235b4f41262f36e45dc33cda28c6b659399aa971d25a9d",
+    "tokenizers_version": "0.23.3",
+    "trained_on": {
+      "dclm": 200000000,
+      "fineweb": 200000000,
+      "fineweb_edu": 200000000
+    },
+    "type": "byte-level BPE (HF tokenizers)",
+    "vocab_size": 4096
+  },
+  "tokens": {
+    "dtype": "uint16",
+    "eot_after_each_doc": true,
+    "splits": {
+      "dclm": {
+        "test": {
+          "bytes_per_token": 3.2696,
+          "docs": 1966,
+          "file": "/data/vocab/v4096/tokens/dclm/test.bin",
+          "sha256": "3b849eb5e5633f2a20e5de80169af99f2559d1cdb82ec59c0a0350f9d26c3907",
+          "tokens_excl_eot": 3058527,
+          "tokens_incl_eot": 3060493,
+          "utf8_bytes": 10000197
+        },
+        "val": {
+          "bytes_per_token": 3.2643,
+          "docs": 1904,
+          "file": "/data/vocab/v4096/tokens/dclm/val.bin",
+          "sha256": "2e0d47addc8a635608cc64f36d8977f5d5b3a53755f8efdc5fa09fac2fe6d474",
+          "tokens_excl_eot": 3066619,
+          "tokens_incl_eot": 3068523,
+          "utf8_bytes": 10010494
+        }
+      },
+      "fineweb": {
+        "test": {
+          "bytes_per_token": 3.3309,
+          "docs": 3284,
+          "file": "/data/vocab/v4096/tokens/fineweb/test.bin",
+          "sha256": "0e9c55267b27eda12e86b1bc8c85be33a419e1a1d0562aa0eb8f2196b3601db2",
+          "tokens_excl_eot": 3008084,
+          "tokens_incl_eot": 3011368,
+          "utf8_bytes": 10019493
+        },
+        "val": {
+          "bytes_per_token": 3.3413,
+          "docs": 3057,
+          "file": "/data/vocab/v4096/tokens/fineweb/val.bin",
+          "sha256": "a132d2a9056dcbd8fb3a89cbcdacaebf785fbb72911a00962b30fb298a3a710a",
+          "tokens_excl_eot": 2994130,
+          "tokens_incl_eot": 2997187,
+          "utf8_bytes": 10004208
+        }
+      },
+      "fineweb_edu": {
+        "test": {
+          "bytes_per_token": 3.4081,
+          "docs": 2038,
+          "file": "/data/vocab/v4096/tokens/fineweb_edu/test.bin",
+          "sha256": "8192dcb70d81bbd0bdfc0e3949d1b747bad4f4da464af60a06008b64715b4fbc",
+          "tokens_excl_eot": 2937378,
+          "tokens_incl_eot": 2939416,
+          "utf8_bytes": 10010792
+        },
+        "train": {
+          "bytes_per_token": 3.4248,
+          "docs": 1989958,
+          "file": "/data/vocab/v4096/tokens/fineweb_edu/train.bin",
+          "sha256": "6a96ecfdc2da9121f1ba2d29828833681d19c38840f9dfaa48593113117eadcf",
+          "tokens_excl_eot": 2773884734,
+          "tokens_incl_eot": 2775874692,
+          "utf8_bytes": 9500000285
+        },
+        "val": {
+          "bytes_per_token": 3.4142,
+          "docs": 1981,
+          "file": "/data/vocab/v4096/tokens/fineweb_edu/val.bin",
+          "sha256": "5b7159259f289d459c021cd233a7a1d3bb7ec6f27afad1b860eaf8d5e718705e",
+          "tokens_excl_eot": 2929485,
+          "tokens_incl_eot": 2931466,
+          "utf8_bytes": 10001828
+        }
+      },
+      "wikipedia": {
+        "test": {
+          "bytes_per_token": 2.9632,
+          "docs": 3350,
+          "file": "/data/vocab/v4096/tokens/wikipedia/test.bin",
+          "sha256": "11cae39b8e700abb5d9f9a6ad60e7b59d3d5a5d895b4c18e8b96f29f1ff28992",
+          "tokens_excl_eot": 3374934,
+          "tokens_incl_eot": 3378284,
+          "utf8_bytes": 10000624
+        },
+        "val": {
+          "bytes_per_token": 2.94,
+          "docs": 3173,
+          "file": "/data/vocab/v4096/tokens/wikipedia/val.bin",
+          "sha256": "3be1aa4621a93890486cc30c47fea40daf95dd86f12c569c74b5dcec6b70c23b",
+          "tokens_excl_eot": 3401373,
+          "tokens_incl_eot": 3404546,
+          "utf8_bytes": 10000178
+        }
+      }
+    }
+  },
+  "path_note": "file paths normalised from /__modal/volumes/<giraffes573 volume id>/ to /data/ on 2026-11-05 (D31 update): the builder recorded the resolved mount path; the Volume's own copy of this manifest still has the resolved paths"
+}

@@ -46,8 +46,10 @@ EVAL_SPLITS = ("test", "val")
 
 
 def _inside(path: Path, root: Path) -> Path:
-    path, root = path.resolve(), root.resolve()
-    if root not in path.parents and path != root:
+    """Refuse any path outside root (checked on the resolved paths); return the path as given. On Modal /data is a link
+    to /__modal/volumes/<id>/: returning the resolved path recorded that workspace-specific path in the manifests (D31 update)."""
+    rp, rr = path.resolve(), root.resolve()
+    if rr not in rp.parents and rp != rr:
         raise RuntimeError(f"refusing to write outside {root}: {path}")
     return path
 
