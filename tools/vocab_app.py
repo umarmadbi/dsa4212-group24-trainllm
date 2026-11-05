@@ -25,8 +25,10 @@ import modal
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install_from_requirements("requirements.txt")
-    .add_local_dir("code", remote_path="/root/code")
-    .add_local_dir("tools", remote_path="/root/tools")
+    # __pycache__ excluded: running this file locally makes Python write tools/__pycache__/*.pyc while Modal is
+    # packing the folder, and Modal then aborts ("was modified during build process", 5 Nov 19:05; nothing had run)
+    .add_local_dir("code", remote_path="/root/code", ignore=["**/__pycache__/**", "**/*.pyc"])
+    .add_local_dir("tools", remote_path="/root/tools", ignore=["**/__pycache__/**", "**/*.pyc"])
 )
 data_vol = modal.Volume.from_name("small-llm-data", create_if_missing=False)
 app = modal.App("dsa4212-vocab-build", image=image)
