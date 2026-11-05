@@ -9,11 +9,11 @@ Run from the repo root (needs `pip install torch numpy pyyaml`):
 python code/tests/test_pipeline.py
 ```
 
-Expected last line: `18/18 passed`. Run it after any change to `code/` and before committing.
+Expected last line: `20/20 passed`. Run it after any change to `code/` and before committing.
 
 | File | What it does |
 |---|---|
-| `test_pipeline.py` | The 18 tests below. Each one is a row of the correctness checklist in the Phase 0 records |
+| `test_pipeline.py` | The 20 tests below. Each one is a row of the correctness checklist in the Phase 0 records |
 
 | Test | What it proves |
 |---|---|
@@ -32,6 +32,8 @@ Expected last line: `18/18 passed`. Run it after any change to `code/` and befor
 | corpus mixture (E03 R8) | Batches follow the declared token shares exactly (to one window), rows come from each corpus's pool, exact resume after a crash, bad mixes refused (D26) |
 | Muon optimizer (E05) | Muon gets exactly the hidden block matrices, AdamW the rest, one schedule drives both, the model learns, exact resume (D28) |
 | 13-gram contamination check (E03 R3) | `contamination.py` finds shared 13-grams exactly like a brute-force lookup, also across chunk boundaries; union over training corpora (D25) |
+| vocabulary variant data (E07) | `data_variant` reads only `<data>/vocab/v<V>/`, refuses a mismatched/unsupported variant, never falls back to the baseline files, cuts the curve subset to the baseline's text, hashes the variant files; rescore uses the variant; baseline results get no new fields (D36) |
+| sliding-window BPB (E07) | The overlapping-window diagnostic equals the declared BPB exactly at stride = context and scores every target once (D36) |
 | rescore reproduces stored BPB | `rescore.py` re-scores a saved model to exactly its stored BPB, and leaving documents out equals scoring a hand-rebuilt file (D25) |
 | all config files load | Every YAML file in `configs/` loads with the right types (a YAML quirk crashed the first benchmarks) |
 | no pretrained-weights code path | `model.py` cannot load GPT-2 weights |

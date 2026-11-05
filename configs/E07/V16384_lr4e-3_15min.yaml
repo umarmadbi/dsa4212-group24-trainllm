@@ -1,0 +1,26 @@
+# E07 (D36) learning-rate pilot, vocabulary 16,384 (data /data/vocab/v16384/, built by tools/prepare_vocab.py, D31/D35).
+# Model = the declared baseline N49 (11 x 576, AdamW); only the vocabulary (and with it the tied embedding) changes.
+# Declared protocol, the grid N49 had in E01: 4 LRs 5e-4..4e-3 x 15 min, edge and close-call rules. Preliminary work.
+run_id: E07-V16384_lr4e-3_15min
+experiment: E07
+corpus: fineweb_edu
+data_variant: v16384
+n_layer: 11
+n_head: 9
+n_embd: 576
+block_size: 512
+vocab_size: 16384
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 4.0e-03
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 900
+eval_every_frac: 0.05
+ckpt_every_s: 300
+compile: true
+dtype: bfloat16

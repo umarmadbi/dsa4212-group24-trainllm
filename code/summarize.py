@@ -3,7 +3,7 @@ Summarise saved run results (results/runs/*.json) for one experiment.
 
     python code/summarize.py E01          # table of all E01 runs, best LR per size, checks
     python code/summarize.py E00
-    python code/summarize.py E02|E03|E04
+    python code/summarize.py E02|E03|E04|E05|E06|E07
 
 Needs only the Python standard library (runs on any computer, no torch).
 
@@ -969,8 +969,10 @@ def _lr_frac_at(r, step):
     return best[2] / r["config"]["lr"] if best else None
 
 
-def _diagnostics(arm, base, arm_pilots, base_pilots, label):
-    """R4 (D30, reported, never decisive): equal-steps view, machine-speed adjustment, AVG4, clipping."""
+def _diagnostics(arm, base, arm_pilots, base_pilots, label, equal_steps=True):
+    """R4 (D30, reported, never decisive): equal-steps view, machine-speed adjustment, AVG4, clipping.
+    equal_steps=False (E07): steps of different vocabularies cover different amounts of text, so E07 prints
+    an equal-BYTES view of its own (_e07_bytes_view) instead."""
     if not arm or not base:
         return
     fin = lambda r: (r.get("curve") or [{}])[-1].get("val_bpb")
@@ -980,7 +982,7 @@ def _diagnostics(arm, base, arm_pilots, base_pilots, label):
     s_eq = min(sa, sb)
     longer, shorter = (base, arm) if sb >= sa else (arm, base)
     at = [_curve_at(r, s_eq) for r in longer]
-    if all(x is not None for x in at) and all(fin(r) for r in arm + base):
+    if equal_steps and all(x is not None for x in at) and all(fin(r) for r in arm + base):
         a_fin = statistics.mean(fin(r) for r in arm); b_fin = statistics.mean(fin(r) for r in base)
         l_at = statistics.mean(at)
         a_eq, b_eq = (a_fin, l_at) if longer is base else (l_at, b_fin)
@@ -1018,8 +1020,10 @@ def _diagnostics(arm, base, arm_pilots, base_pilots, label):
           f"{statistics.mean(r.get('mfu_steady') or 0 for r in arm):.3f} vs {statistics.mean(r.get('mfu_steady') or 0 for r in base):.3f}")
 
 
-def _final_vs_adamw(rows, label):
-    """R2: 3 seeds vs the AdamW N49 3-seed mean (1.6 sigma60); with one seed, the seed-0 rule (2 sigma60 sqrt(4/3))."""
+def _final_vs_adamw(rows, label, need3=False):
+    """R2: 3 seeds vs the AdamW N49 3-seed mean (1.6 sigma60); with one seed, the seed-0 rule (2 sigma60 sqrt(4/3)).
+    need3=True (E05, whose declared R2 always uses 3 seeds; display issue noted in D32, fixed D36): with fewer
+    than 3 seeds nothing is judged."""
     base = _load_ids(BASE_RUNS)
     b = [bpb_key(r) for r in base]
     v = [bpb_key(r) for r in rows if r["seed"] in (0, 1, 2)]
@@ -1037,6 +1041,10 @@ def _final_vs_adamw(rows, label):
         print(f"  3-seed mean {statistics.mean(v):.4f} (sd {statistics.stdev(v):.4f}), diff vs AdamW N49 {d:+.4f}; "
               f"real if |diff| > 1.6 sigma60 = {thr:.4f} -> {verdict}")
         return verdict
+    if need3 and v:
+        print(f"  {len(v)} of 3 seeds in (mean {statistics.mean(v):.4f}, diff {statistics.mean(v) - bm:+.4f}, descriptive): "
+              "the declared R2 needs all 3 seeds")
+        return "WAIT"
     if len(v) == 2:
         print(f"  2 of 3 seeds usable (mean {statistics.mean(v):.4f}, diff {statistics.mean(v) - bm:+.4f}): no verdict until "
               "the third seed is in (a replaced run keeps its seed)")
@@ -1159,7 +1167,7 @@ def main_e05():
         blocked = _slow_checks(long, pil, "Muon")
         fin = [r for r in fin if r["run_id"] not in blocked]
         print(f"R2 decision (Muon at {lr_tag(final_lr)}, 60 min):")
-        verdict = _final_vs_adamw(fin, "Muon")
+        verdict = _final_vs_adamw(fin, "Muon", need3=True)
         if verdict and len([r for r in fin if r["seed"] in (0, 1, 2)]) >= 3:
             _diagnostics([r for r in fin if r["seed"] in (0, 1, 2)], _load_ids(BASE_RUNS), pil, ad_p, "Muon")
         if final_lr != pick and [r for r in long if mlr(r) == pick]:
@@ -1217,10 +1225,273 @@ def main_e06():
         _diagnostics([r for r in rs if r["seed"] in (0, 1, 2)], _load_ids(BASE_RUNS), ps, ad_p, sh)
 
 
+# ---------------------------------------------------------------------------
+# E07 (Phase 5): vocabulary size at the declared baseline model (AdamW 11 x 576), 60 min. Rules D36.
+E07_VOCABS = {4096: "V4096", 16384: "V16384", 32768: "V32768"}
+E07_GRID = [5e-4, 1e-3, 2e-3, 4e-3]     # the declared grid N49 had in E01 (same tuning effort)
+BASE_VOCAB = 8192
+
+
+def _manifest(v):
+    f = Path("data/manifest.json") if v == BASE_VOCAB else Path(f"data/vocab/v{v}/manifest.json")
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
+
+
+def _bpt(v, split, corpus="fineweb_edu"):
+    m = _manifest(v)
+    try:
+        return m["tokens"]["splits"][corpus][split]["bytes_per_token"]
+    except (TypeError, KeyError):
+        return None
+
+
+def _data_check(r):
+    """E07: the run's hashed variant files against the local manifest of that variant (fetched from giraffes573,
+    D35). A mismatch means the workspace holds different variant data: the run is unusable (D36 R0)."""
+    dc = r.get("data_check")
+    v = r["config"].get("vocab_size")
+    if not r["config"].get("data_variant"):
+        return []
+    if not dc:
+        return ["NO DATA CHECK"]
+    m = _manifest(v)
+    if m is None:
+        return ["NO LOCAL MANIFEST"]
+    bad = []
+    if dc["token_bytes_sha256"] != m["tokenizer"]["token_bytes_sha256"]:
+        bad.append("token_bytes")
+    for c, h in dc["val_sha256"].items():
+        if h != m["tokens"]["splits"][c]["val"]["sha256"]:
+            bad.append(f"{c}/val")
+    if dc.get("train_tokens") != m["tokens"]["splits"]["fineweb_edu"]["train"]["tokens_incl_eot"]:
+        bad.append("train size")
+    return [f"DATA MISMATCH ({', '.join(bad)})"] if bad else []
+
+
+def _bytes_curve_at(r, b, bpt):
+    """Learning-curve BPB (same-text subset) interpolated at b training BYTES processed (tokens x train bytes/token)."""
+    c = [(x["tokens"] * bpt, x["val_bpb"]) for x in r.get("curve", []) if x.get("val_bpb") is not None]
+    for (x0, y0), (x1, y1) in zip(c, c[1:]):
+        if x0 <= b <= x1:
+            return y0 + (b - x0) / max(1e-9, x1 - x0) * (y1 - y0)
+    return None
+
+
+def _e07_bytes_view(arm, base, v, label):
+    """E07 diagnostic (D36): equal TIME (declared) vs equal training BYTES (data efficiency). The arm that read more
+    text is read off its own learning curve at the other arm's mean bytes; the difference between the two views is
+    what the vocabulary's different text-per-second is worth. Curves of a variant cover the same text as the
+    baseline's (byte-matched subset), so curve values are comparable across vocabularies."""
+    bpa, bpb_ = _bpt(v, "train"), _bpt(BASE_VOCAB, "train")
+    if not (arm and base and bpa and bpb_):
+        return
+    fin = lambda r: (r.get("curve") or [{}])[-1].get("val_bpb")
+    ba = statistics.mean(r["tokens_processed"] * bpa for r in arm)
+    bb = statistics.mean(r["tokens_processed"] * bpb_ for r in base)
+    b_eq = min(ba, bb)
+    longer, lbpt = (base, bpb_) if bb >= ba else (arm, bpa)
+    at = [_bytes_curve_at(r, b_eq, lbpt) for r in longer]
+    if not all(x is not None for x in at) or not all(fin(r) for r in arm + base):
+        return
+    a_fin = statistics.mean(fin(r) for r in arm); b_fin = statistics.mean(fin(r) for r in base)
+    l_at = statistics.mean(at)
+    a_eq, b_eq_v = (a_fin, l_at) if longer is base else (l_at, b_fin)
+    who = "8k baseline" if longer is base else label
+    cs = [r.get("curve_subset") or {} for r in arm]
+    rel = max((abs(c.get("rel_bytes_diff", 0)) for c in cs), default=0)
+    print(f"  D3 equal time vs equal bytes (learning-curve subset, same text as 8k to {rel:.2%}; text read in 60 min: "
+          f"{label} {ba / 1e9:.3f} GB, 8k {bb / 1e9:.3f} GB = {ba / bb - 1:+.1%}):")
+    print(f"      at equal TIME (60 min):                 {label} - 8k = {a_fin - b_fin:+.4f}")
+    print(f"      at equal BYTES ({who} curve read at {b_eq / 1e9:.3f} GB; its LR not fully annealed there): "
+          f"{label} - 8k = {a_eq - b_eq_v:+.4f}")
+    print(f"      -> what {label}'s different text-per-second is worth (time view minus bytes view): "
+          f"{(a_fin - b_fin) - (a_eq - b_eq_v):+.4f}")
+
+
+def _e07_rows(runs, v):
+    return [r for r in runs if r["config"].get("vocab_size") == v]
+
+
+def _tao_prediction():
+    """Tao et al. (2024) Approach 1 fits, evaluated at our numbers (descriptive prediction, not a rule)."""
+    base = _load_ids(BASE_RUNS)
+    if not base:
+        return
+    C = statistics.mean(r["est_train_flops"] for r in base)
+    d = base[0]["config"]["n_embd"]
+    nv_c = 0.20 * C ** 0.42                                        # vocab params at compute C (their fit)
+    nnv = base[0]["params"]["non_embedding"]
+    nv_n = 0.20 * ((nnv / 0.08) ** 2) ** 0.42                    # C at which N_nv = 0.08 C^0.5 equals ours
+    print(f"  Tao et al. 2024 (Approach 1) at our compute C = {C:.2e} FLOPs: optimal vocab params {nv_c / 1e6:.1f}M -> "
+          f"V ~ {nv_c / d / 1e3:.1f}k at width {d}; from our non-embedding size ({nnv / 1e6:.1f}M): "
+          f"V ~ {nv_n / d / 1e3:.1f}k (their fits use FLOPs and compute-optimal data; ours is time-limited)")
+
+
+def main_e07():
+    runs = load("E07")
+    pil = [r for r in runs if r["budget_s"] == 900]
+    fin = [r for r in runs if r["budget_s"] == FINAL_S]
+    lr = lambda r: r["config"]["lr"]
+    print("E07: vocabulary size at the declared baseline model (AdamW 11 x 576, 60 min). Rules D36.")
+    print("  Decisions: final FineWeb-Edu validation BPB of each vocabulary vs the 8k E02-N49 runs (3 seeds); "
+          "everything marked D<n> is reported, never decisive.")
+    ad = {k: _load_ids(ids) for k, ids in AD_PILOTS.items()}
+    ad_p = [r for v in ad.values() for r in v]
+    base = _load_ids(BASE_RUNS)
+    _lr_curve({float(k): bpb_key(v[0]) for k, v in ad.items() if v}, "8k (E01 N49)")
+    ref_tps = statistics.median(r["steady_tokens_per_s"] for r in ad_p) if ad_p else None
+    print(f"\nD1/D2 per vocabulary (FineWeb-Edu bytes/token from the manifests; speed = median of the 15-min pilots; "
+          f"* = computed, not yet run):")
+    print(f"  {'vocab':>6} {'val B/tok':>9} {'train B/tok':>11} {'total':>7} {'embed':>6} {'non-emb':>7} "
+          f"{'FLOPs/tok':>9} {'tok/s':>7} {'bytes/s':>8} {'vs 8k':>7} {'MFU':>5}")
+    table = {}
+    for v in sorted([BASE_VOCAB] + list(E07_VOCABS)):
+        ps = ad_p if v == BASE_VOCAB else [r for r in _e07_rows(pil, v)]
+        any_r = (base or ad_p)[0] if v == BASE_VOCAB else next(iter(_e07_rows(runs, v)), None)
+        tps = statistics.median(r["steady_tokens_per_s"] for r in ps if r.get("steady_tokens_per_s")) if ps else None
+        bpt_tr = _bpt(v, "train")
+        bps = tps * bpt_tr if tps and bpt_tr else None
+        table[v] = dict(tps=tps, bps=bps)
+        ref_bps = table.get(BASE_VOCAB, {}).get("bps")
+        if any_r:
+            p, fpt, star = any_r["params"], any_r["flops_per_token"], " "
+        elif base:                               # not run yet: computed (tied embedding V x d, same blocks)
+            b0 = base[0]; dd = b0["config"]["n_embd"]
+            p = dict(non_embedding=b0["params"]["non_embedding"], token_embedding=v * dd,
+                     total=b0["params"]["non_embedding"] + b0["params"]["position_embedding"] + v * dd)
+            fpt, star = b0["flops_per_token"] + 6 * (v - BASE_VOCAB) * dd, "*"
+        else:
+            p = None
+        print(f"  {v:>6} {(_bpt(v, 'val') or 0):>9.3f} {(bpt_tr or 0):>11.3f} "
+              + (f"{p['total'] / 1e6:>6.1f}M {p['token_embedding'] / 1e6:>5.1f}M {p['non_embedding'] / 1e6:>6.1f}M "
+                 f"{fpt / 1e6:>8.0f}M{star}" if p else f"{'-':>7} {'-':>6} {'-':>7} {'-':>9}")
+              + (f" {tps:>7.0f} {bps / 1e3:>7.0f}k {(bps / ref_bps - 1) if ref_bps else 0:>+7.1%} "
+                 f"{statistics.median(r.get('mfu_steady') or 0 for r in ps):>5.3f}" if tps and bps else "   (no pilots yet)"))
+    _tao_prediction()
+    summary = {BASE_VOCAB: dict(vals=[bpb_key(r) for r in base], verdict="reference")}
+    pending_cc = []
+    for v, name in E07_VOCABS.items():
+        ps = _e07_rows(pil, v)
+        print(f"\n{v} ({name}) pilots (15 min):")
+        for r in sorted(ps, key=lambda r: (lr(r), r["seed"])):
+            dcx = _data_check(r)
+            print(f"  lr {lr_tag(lr(r))} s{r['seed']}: {fmt_bpb(r)}  {r.get('steady_tokens_per_s') or 0:.0f} tok/s, "
+                  f"clipped {r.get('frac_steps_clipped') or 0:.1%}, start loss {r['train_log'][0]['train_loss']:.2f} "
+                  f"(ln V {math.log(v):.2f})" + (f"  !! {'; '.join(dcx)}" if dcx else ""))
+        bad_pil = [r for r in ps if _data_check(r)]
+        if bad_pil:
+            print(f"  EXCLUDED (wrong data on that workspace): {[r['run_id'] for r in bad_pil]}")
+            ps = [r for r in ps if not _data_check(r)]
+        pick, _, note, s0 = _pick_lr(ps, lr, E07_GRID)
+        _lr_curve(s0, str(v))
+        print(f"R1 {v} LR pick: {lr_tag(pick) if pick else None} ({note})")
+        if pick is None:
+            continue
+        _fifteen_vs_adamw([r for r in ps if lr(r) == pick and r["seed"] in (0, 1, 2)], f"{v}")
+        rs = [r for r in _e07_rows(fin, v) if lr(r) == pick]
+        other = [r for r in _e07_rows(fin, v) if lr(r) != pick]
+        if other:
+            print(f"  NOTE: 60-min {v} runs at a non-picked LR exist: {[r['run_id'] for r in other]} (not used)")
+        if not rs:
+            print(f"  LAUNCH: configs/E07/{name}_lr{lr_tag(pick)}_60min.yaml seed 0")
+            continue
+        print(f"R3 infrastructure {v}:")
+        blocked = _slow_checks(rs, ps, str(v))
+        for r in rs:
+            dcx = _data_check(r)
+            if dcx:
+                print(f"  {r['run_id']}: {'; '.join(dcx)} -> EXCLUDED (rerun on a workspace whose variant files verify)")
+                blocked.add(r["run_id"])
+        rs = [r for r in rs if r["run_id"] not in blocked]
+        if not rs:
+            continue
+        print(f"R2 {v} (60 min, lr {lr_tag(pick)}):")
+        verdict = _final_vs_adamw(rs, f"v{v}")
+        n3 = [r for r in rs if r["seed"] in (0, 1, 2)]
+        summary[v] = dict(vals=[bpb_key(r) for r in n3], verdict=verdict, lr=pick)
+        if verdict == "CLOSE CALL" and len(n3) < 3:
+            d0 = bpb_key(n3[0]) - statistics.mean(bpb_key(r) for r in base)
+            pending_cc.append((d0, v, name, pick))
+        _diagnostics(n3, base, ps, ad_p, f"v{v}", equal_steps=False)
+        _e07_bytes_view(n3, base, v, f"v{v}")
+        lpt = statistics.mean(r["final_val"]["fineweb_edu"]["loss_per_token"] for r in n3)
+        lpt_b = statistics.mean(r["final_val"]["fineweb_edu"]["loss_per_token"] for r in base)
+        print(f"  D6 loss per TOKEN {lpt:.4f} vs 8k {lpt_b:.4f} (not comparable across tokenizers; BPB is): "
+              f"scored tokens {n3[0]['final_val']['fineweb_edu']['scored_tokens']:,} vs "
+              f"{base[0]['final_val']['fineweb_edu']['scored_tokens']:,}, bytes "
+              f"{n3[0]['final_val']['fineweb_edu']['scored_bytes']:,} vs {base[0]['final_val']['fineweb_edu']['scored_bytes']:,}")
+        print(f"  D9 memory: peak GPU {max(r.get('peak_memory_gb') or 0 for r in n3):.1f} GB (8k "
+              f"{max(r.get('peak_memory_gb') or 0 for r in base):.1f}), host RSS "
+              f"{max(((r.get('peak_host_rss_gb') or {}).get('self') or 0) for r in n3):.1f} GB")
+    # ---- close calls still to run (D36 R2 priority: a vocabulary whose seed 0 is BELOW 8k first) ----
+    if pending_cc:
+        print("\nR2 close calls to run (seeds 1, 2 of the 60-min config; priority order, D36):")
+        for d0, v, name, pick in sorted(pending_cc, key=lambda t: (t[0] >= 0, abs(t[0]))):
+            print(f"  configs/E07/{name}_lr{lr_tag(pick)}_60min.yaml seeds 1,2   (seed-0 diff {d0:+.4f}"
+                  f"{'; could enter the final recipe' if d0 < 0 else '; can only end inconclusive or worse'})")
+    # ---- overall: where is the optimum? ----
+    done = {v: x for v, x in summary.items() if x["vals"] and all(y < math.inf for y in x["vals"])}
+    if len(done) > 1:
+        print("\nR4 overall (FineWeb-Edu val BPB, 60 min; mean over the seeds run):")
+        for v in sorted(done):
+            x = done[v]
+            print(f"  {v:>6}: {statistics.mean(x['vals']):.4f} ({len(x['vals'])} seed(s))  {x['verdict']}")
+        better = [v for v, x in done.items() if x["verdict"] == "BETTER"]
+        if not better:
+            print("  -> no vocabulary is better than 8k beyond noise: 8k stays (the declared baseline)")
+        else:
+            best = min(better, key=lambda v: statistics.mean(done[v]["vals"]))
+            rng = [best]
+            for v in better:
+                if v == best:
+                    continue
+                na, nb = len(done[best]["vals"]), len(done[v]["vals"])
+                thr = 2 * SIGMA_FWE * math.sqrt(1 / na + 1 / nb)
+                if statistics.mean(done[v]["vals"]) - statistics.mean(done[best]["vals"]) <= thr:
+                    rng.append(v)
+            print(f"  -> better than 8k: {sorted(better)}; best {best}"
+                  + (f"; not separated from {sorted(set(rng) - {best})} (2 SE): optimal range {sorted(rng)}" if len(rng) > 1 else ""))
+            if best in (min(E07_VOCABS), max(E07_VOCABS)):
+                print("  NOTE: the best vocabulary is at the edge of the grid; no extension is run (D36: budget); "
+                      "the optimum may lie beyond it (reported as a limitation)")
+        if len(done) >= 3:
+            xs = sorted(done)
+            ys = [statistics.mean(done[v]["vals"]) for v in xs]
+            i = min(range(len(xs)), key=lambda k: ys[k])
+            if 0 < i < len(xs) - 1:
+                vx = parabola_vertex([(math.log2(xs[k]), ys[k]) for k in (i - 1, i, i + 1)])
+                print(f"  D10 parabola through the best and its neighbours (log2 V): vertex "
+                      + (f"V ~ {2 ** vx / 1e3:.1f}k (diagnostic)" if vx is not None else "none (not convex)"))
+            else:
+                print("  D10 lowest mean at the edge of the vocabularies run so far: no interior vertex")
+    # ---- D8 sliding-window rescore (diagnostic; results/rescore/*__slide<N>.json) ----
+    sl = sorted(Path("results/rescore").glob("*__slide*.json")) if Path("results/rescore").exists() else []
+    if sl:
+        print("\nD8 evaluation-context check (overlapping windows; declared protocol = non-overlapping 512-token windows):")
+        by_v = defaultdict(list)
+        for f in sl:
+            x = json.loads(f.read_text())
+            rid = x["run_id"]
+            e = x["sets"].get("fineweb_edu")
+            src = _load_ids([rid])
+            if not e or "sliding" not in e or not src:
+                continue
+            v = src[0]["config"]["vocab_size"]
+            by_v[v].append((e["full"]["bpb"], e["sliding"]["bpb"], e["sliding"]["stride"]))
+        if BASE_VOCAB in by_v:
+            b_full = statistics.mean(a for a, _, _ in by_v[BASE_VOCAB]); b_sl = statistics.mean(b for _, b, _ in by_v[BASE_VOCAB])
+            for v in sorted(by_v):
+                f_ = statistics.mean(a for a, _, _ in by_v[v]); s_ = statistics.mean(b for _, b, _ in by_v[v])
+                print(f"  {v:>6} ({len(by_v[v])} model(s), stride {by_v[v][0][2]}): declared {f_:.4f}, sliding {s_:.4f} "
+                      f"(gain {s_ - f_:+.4f}); gap to 8k declared {f_ - b_full:+.4f}, sliding {s_ - b_sl:+.4f}")
+        else:
+            print("  waiting for the 8k models' sliding rescore (E02-N49 s0-2, jinkyungjeon)")
+
+
 if __name__ == "__main__":
     exp = sys.argv[1] if len(sys.argv) > 1 else "E01"
-    if exp in ("E02", "E03", "E04", "E05", "E06"):
-        {"E02": main_e02, "E03": main_e03, "E04": main_e04, "E05": main_e05, "E06": main_e06}[exp]()
+    if exp in ("E02", "E03", "E04", "E05", "E06", "E07"):
+        {"E02": main_e02, "E03": main_e03, "E04": main_e04, "E05": main_e05, "E06": main_e06, "E07": main_e07}[exp]()
         sys.exit(0)
     main(exp)
     if exp == "E01":

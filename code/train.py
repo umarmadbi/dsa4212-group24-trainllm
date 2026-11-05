@@ -33,6 +33,13 @@ Added before Phase 1 (decision D07, 2026-11-01):
   by a background thread calling nvidia-smi (CPU only, not on the GPU's critical path),
   to explain throughput differences between machines or over time (L4 power-throttling).
 
+Added for Phase 5 (decision D36, 2026-11-05):
+* `data_variant: v<V>` reads the vocabulary variant at <data>/vocab/v<V>/ (tools/prepare_vocab.py; same
+  documents, other tokenizer). The baseline path (data_variant empty) is unchanged. With a variant: the
+  learning-curve subset is cut to the same text as the baseline's (`byte_matched_prefix`; per-token cuts would
+  cover different text for different tokenizers), and the tokenizer and validation files are hashed into the
+  result (`data_check`), so a run on a workspace with different variant files is detectable.
+
 Run on Modal through modal_app.py, or locally for tests:
     python code/train.py --config configs/x.yaml --seed 0 --data_dir D --out_root O
 """
@@ -108,6 +115,32 @@ def subset_window_ids(n_tokens: int, T: int, subset_tokens: int) -> np.ndarray:
         raise ValueError(f"train_subset_tokens={subset_tokens} gives {m} windows; "
                          f"the split has {n_win}")
     return np.sort(np.random.default_rng(SUBSET_KEY).permutation(n_win)[:m])
+
+
+def byte_matched_prefix(base_tokens: np.ndarray, base_tb: np.ndarray, base_n_tokens: int,
+                        tokens: np.ndarray, tb: np.ndarray, T: int) -> tuple[np.ndarray, dict]:
+    """E07 (D36): learning-curve subset of a vocabulary variant that covers the same text as the baseline's.
+    The baseline curve scores the first base_n_tokens // T windows of its validation file (bpb.evaluate_bpb on
+    tokens[:base_n_tokens + 1]); B0 = UTF-8 bytes of those targets. Both files hold the same documents in the
+    same order, so the variant prefix of a whole number of T-token windows whose target bytes are closest to B0
+    covers the same text, up to less than one window (~0.2 % of ~1 MB) at the end."""
+    nb = base_n_tokens // T
+    b0 = int(base_tb[base_tokens[1:nb * T + 1]].astype(np.int64).sum())
+    cum = np.cumsum(tb[tokens[1:]].astype(np.int64))         # cum[k - 1] = bytes of targets 1..k
+    w_all = np.arange(1, (len(tokens) - 1) // T + 1)
+    bw = cum[w_all * T - 1]
+    w = int(w_all[int(np.argmin(np.abs(bw - b0)))])
+    return tokens[:w * T + 1], dict(base_windows=nb, base_target_bytes=b0, windows=w, tokens=w * T,
+                                    target_bytes=int(bw[w - 1]), rel_bytes_diff=round(int(bw[w - 1]) / b0 - 1, 6))
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 24), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 class WindowLoader:
@@ -481,6 +514,9 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
     crash_fn = crash_fn or _default_crash
     device = "cuda" if torch.cuda.is_available() else "cpu"
     data_dir, run_dir = Path(data_dir), Path(out_root) / cfg.run_id
+    base_data_dir = data_dir
+    if cfg.data_variant:                         # E07 (D36): <data>/vocab/v<V>/, same layout as <data>/
+        data_dir = base_data_dir / "vocab" / cfg.data_variant
     run_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = run_dir / "ckpt_latest.pt"
     wall_start = time.time()
@@ -526,6 +562,22 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
     val = {c: np.fromfile(data_dir / "tokens" / c / "val.bin", dtype=np.uint16)
            for c in sorted(set(cfg.eval_corpora) | {cfg.curve_corpus})}
     curve_tokens = val[cfg.curve_corpus][:cfg.curve_tokens + 1]
+    variant_info = None
+    if cfg.data_variant:                         # E07 (D36): same curve text as the baseline; data hashes
+        base_curve = np.fromfile(base_data_dir / "tokens" / cfg.curve_corpus / "val.bin", dtype=np.uint16)
+        base_tb = np.load(base_data_dir / "tokenizer" / "token_bytes.npy")
+        curve_tokens, curve_info = byte_matched_prefix(base_curve, base_tb, cfg.curve_tokens,
+                                                       val[cfg.curve_corpus], token_bytes, cfg.block_size)
+        del base_curve
+        variant_info = dict(
+            curve_subset=curve_info,
+            data_check=dict(data_variant=cfg.data_variant, data_dir=str(data_dir),
+                            tokenizer_meta=tmeta,
+                            token_bytes_sha256=_sha256_file(data_dir / "tokenizer" / "token_bytes.npy"),
+                            val_sha256={c: _sha256_file(data_dir / "tokens" / c / "val.bin") for c in sorted(val)},
+                            train_tokens=int(train_tokens_available)))
+        print(f"data variant {cfg.data_variant}: curve subset {curve_info['tokens']:,} tokens, "
+              f"{curve_info['target_bytes']:,} bytes (baseline {curve_info['base_target_bytes']:,})", flush=True)
 
     # ---- model and optimiser (fresh, seeded) ----
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
@@ -777,6 +829,8 @@ def run(cfg: Config, seed: int, data_dir: str, out_root: str, meta: dict | None 
         gpu_telemetry=st["gpu_telemetry"],
         curve=st["curve"], train_log=log, lr_log=st["lr_log"],
     )
+    if variant_info:                             # E07 (D36); absent for baseline runs (result unchanged)
+        result.update(variant_info)
     # Plain JSON types only: the result is sent back to a computer without torch installed
     # (torch.__version__ is a torch object; bug found in E00 benchmarks, 2026-11-01).
     result = json.loads(json.dumps(result, default=str))

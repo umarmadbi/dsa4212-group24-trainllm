@@ -297,7 +297,7 @@ def contamination(fetch_only: bool = False):
 
 @app.function(gpu=GPU, cpu=4, memory=16384, timeout=30 * 60,
               volumes={"/data": data_vol, "/runs": runs_vol})
-def rescore_one(run_id: str, sets: list, exclude: dict, tag: str) -> dict:
+def rescore_one(run_id: str, sets: list, exclude: dict, tag: str, stride: int = 0) -> dict:
     """Score /runs/<run_id>/final_model.pt on full validation splits, optionally without some docs."""
     import sys
     sys.path.insert(0, "/root/code")
@@ -306,7 +306,7 @@ def rescore_one(run_id: str, sets: list, exclude: dict, tag: str) -> dict:
         return {"error": f"{run_id}/final_model.pt not on this workspace's runs Volume"}
     gpu_name = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
                               capture_output=True, text=True).stdout.strip()
-    res = R.rescore(f"/runs/{run_id}", "/data", sets, exclude)
+    res = R.rescore(f"/runs/{run_id}", "/data", sets, exclude, stride=stride)
     res.update(gpu_name=gpu_name, tag=tag)
     out = Path("/runs/_analysis/rescore")
     out.mkdir(parents=True, exist_ok=True)
@@ -317,14 +317,16 @@ def rescore_one(run_id: str, sets: list, exclude: dict, tag: str) -> dict:
 
 @app.local_entrypoint()
 def rescore(run_ids: str, sets: str = "fineweb_edu,fineweb,dclm,wikipedia", exclude: str = "",
-            tag: str = "", fetch_only: bool = False):
+            tag: str = "", fetch_only: bool = False, stride: int = 0):
     """Re-score saved final models (outside the budget; D25). Run from the workspace that trained them.
         modal run modal_app.py::rescore --run-ids "E03-N49_dclm__s0,E03-N49_dclm__s1" --exclude contamination
         modal run modal_app.py::rescore --run-ids "E01-N26_lr4e-3_60min__s0"
     --exclude contamination: drop, from each validation set, the documents listed in
     results/contamination.json (union over training corpora, declared threshold), the same for every run.
     Writes results/rescore/<run_id>__<tag>.json (tag: 'nocontam' or 'full' unless given).
-    If the terminal loses its connection, rerun the same command with --fetch-only (same workspace)."""
+    If the terminal loses its connection, rerun the same command with --fetch-only (same workspace).
+    --stride N (E07 diagnostic, D36): also score with overlapping windows every N tokens (tag 'slide<N>').
+        modal run modal_app.py::rescore --run-ids "E07-V4096_lr2e-3_60min__s0" --sets fineweb_edu --stride 128"""
     ids = [r.strip() for r in run_ids.split(",") if r.strip()]
     set_list = [x.strip() for x in sets.split(",") if x.strip()]
     ex = {}
@@ -335,13 +337,13 @@ def rescore(run_ids: str, sets: str = "fineweb_edu,fineweb,dclm,wikipedia", excl
         print("excluding: " + (", ".join(f"{c} {len(v)} docs" for c, v in ex.items()) or "nothing"))
     elif exclude:
         raise SystemExit("--exclude must be '' or 'contamination'")
-    tag = tag or ("nocontam" if exclude else "full")
+    tag = tag or ("nocontam" if exclude else f"slide{stride}" if stride else "full")
     print(f"workspace profile: {_modal_workspace()}")
     Path("results/rescore").mkdir(parents=True, exist_ok=True)
     if fetch_only:      # D26: results are saved on the runs Volume first; fetch them after a dropped connection
         calls = [(rid, None) for rid in ids]
     else:
-        calls = [(rid, rescore_one.spawn(rid, set_list, ex, tag)) for rid in ids]
+        calls = [(rid, rescore_one.spawn(rid, set_list, ex, tag, stride)) for rid in ids]
     for rid, call in calls:
         try:
             res = (json.loads(b"".join(runs_vol.read_file(f"_analysis/rescore/{rid}__{tag}.json")))
@@ -359,7 +361,9 @@ def rescore(run_ids: str, sets: str = "fineweb_edu,fineweb,dclm,wikipedia", excl
             print(f"{rid} {c:12s} bpb {e['full']['bpb']:.4f}"
                   + (f" (stored {e['stored_bpb']:.4f}, diff {d:+.1e})" if d is not None else " (not scored before)")
                   + (f"  without {e['excluded']['docs_removed']} docs: {e['excluded']['bpb']:.4f}"
-                     if "excluded" in e else ""))
+                     if "excluded" in e else "")
+                  + (f"  sliding (stride {e['sliding']['stride']}): {e['sliding']['bpb']:.4f}"
+                     if "sliding" in e else ""))
 
 
 # ---------------------------------------------------------------------------

@@ -43,6 +43,12 @@ class Config:
     muon_momentum: float = 0.95
     muon_ns_steps: int = 5
     muon_adjust_lr: str = "match_rms_adamw"   # update RMS matched to AdamW (Liu et al. 2025, "Muon is Scalable")
+    # E07 (D36): vocabulary experiment. "" = the declared 8,192 baseline data (<data>/tokenizer, <data>/tokens);
+    # "v<V>" = the Phase 5 variant built by tools/prepare_vocab.py at <data>/vocab/v<V>/ (same layout, same
+    # documents; V must equal vocab_size). Variants hold FineWeb-Edu train/val/test and the val/test splits of
+    # FineWeb, DCLM and Wikipedia, so training must be on fineweb_edu. With a variant, the learning-curve subset
+    # is cut to cover the same text as the baseline's (train.byte_matched_prefix), and the data files are hashed.
+    data_variant: str = ""
     eval_corpora: list = field(default_factory=lambda: ["fineweb_edu"])  # full val at the end
     curve_corpus: str = "fineweb_edu"      # fixed subset scored during training
     curve_tokens: int = 262_144            # ~1 MB of FineWeb-Edu text at 3.87 bytes/token
@@ -138,6 +144,14 @@ def load_config(path: str | None, overrides: dict | None = None) -> Config:
         raise ValueError(f"optimizer must be 'adamw' or 'muon', got {cfg.optimizer!r}")
     if cfg.optimizer == "muon" and cfg.muon_lr <= 0:
         raise ValueError("optimizer 'muon' needs muon_lr > 0")
+    if cfg.data_variant:
+        import re
+        if not re.fullmatch(r"v\d+", cfg.data_variant) or int(cfg.data_variant[1:]) != cfg.vocab_size:
+            raise ValueError(f"data_variant must be 'v<vocab_size>' (v{cfg.vocab_size}), got {cfg.data_variant!r}")
+        if cfg.vocab_size == 8192:
+            raise ValueError("the 8,192 vocabulary is the baseline data: leave data_variant empty")
+        if cfg.corpus != "fineweb_edu" or cfg.corpus_mix:
+            raise ValueError("vocabulary variants hold only FineWeb-Edu training data (corpus: fineweb_edu, no mix)")
     if cfg.dtype not in ("bfloat16", "float32"):
         raise ValueError(f"dtype must be bfloat16 or float32, got {cfg.dtype!r}")
     return cfg

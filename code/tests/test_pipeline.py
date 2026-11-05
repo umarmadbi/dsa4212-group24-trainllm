@@ -420,6 +420,100 @@ def test_muon_optimizer(d: Path, out: Path):
         raise AssertionError(f"accepted {bad}")
 
 
+def make_variant(root: Path, V2=128, seed=5):
+    """A vocabulary variant at <root>/vocab/v<V2>/ (E07, D36) holding the SAME text as the baseline: every
+    baseline token t is re-encoded as ids 2t, 2t+1 or 2t+1 alone (a finer 'tokenizer'), bytes split between
+    them, EOT -> V2 - 1. Returns the variant directory."""
+    rng = np.random.default_rng(seed)
+    vd = root / "vocab" / f"v{V2}"
+    tb0 = np.load(root / "tokenizer" / "token_bytes.npy")
+    split = rng.integers(0, 2, size=V)                      # which baseline tokens become two tokens
+    tb2 = np.zeros(V2, dtype=np.int16)
+    for t in range(V - 1):
+        if split[t] and tb0[t] >= 2:
+            tb2[2 * t] = 1; tb2[2 * t + 1] = tb0[t] - 1
+        else:
+            tb2[2 * t + 1] = tb0[t]
+    for sp in ("train", "val"):
+        toks = np.fromfile(root / "tokens" / "fineweb_edu" / f"{sp}.bin", dtype=np.uint16)
+        out = []
+        for t in toks:
+            if t == EOT:
+                out.append(V2 - 1)
+            elif split[t] and tb0[t] >= 2:
+                out += [2 * t, 2 * t + 1]
+            else:
+                out.append(2 * t + 1)
+        p = vd / "tokens" / "fineweb_edu" / f"{sp}.bin"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        np.array(out, dtype=np.uint16).tofile(p)
+    (vd / "tokenizer").mkdir(parents=True, exist_ok=True)
+    np.save(vd / "tokenizer" / "token_bytes.npy", tb2)
+    (vd / "tokenizer" / "meta.json").write_text(json.dumps(dict(vocab_size=V2, eot_id=V2 - 1)))
+    return vd
+
+
+def test_data_variant(d: Path, out: Path):
+    """E07 (D36): data_variant reads <data>/vocab/v<V>/ (never the baseline files), refuses a mismatched or
+    unsupported variant, cuts the learning-curve subset to the baseline's text (byte-matched, < 1 window off),
+    hashes the variant files into the result; rescore scores the model on the variant's files; a baseline run
+    has no new result fields."""
+    from config import load_config
+    import rescore as R
+    import train as TR
+    vd = make_variant(d)
+    common = dict(budget_s=1e9, schedule="steps", max_steps=15, eval_every_frac=10.0)
+    r = run(tiny_cfg(run_id="var", vocab_size=128, data_variant="v128", **common), 0, str(d), str(out))
+    assert r["params"]["token_embedding"] == 128 * 32 and r["data_check"]["data_variant"] == "v128"
+    assert r["data_check"]["token_bytes_sha256"] == TR._sha256_file(vd / "tokenizer" / "token_bytes.npy")
+    cs = r["curve_subset"]
+    assert abs(cs["rel_bytes_diff"]) < 32 * 4 / cs["base_target_bytes"] + 1e-12 and cs["windows"] > cs["base_windows"]
+    assert r["final_val"]["fineweb_edu"]["scored_bytes"] > 0 and r["unique_train_tokens"] == len(
+        np.fromfile(vd / "tokens" / "fineweb_edu" / "train.bin", dtype=np.uint16))
+    # the byte-matched curve covers the same text: bytes of both prefixes agree with a direct count
+    base_val = np.fromfile(d / "tokens" / "fineweb_edu" / "val.bin", dtype=np.uint16)
+    tb0 = np.load(d / "tokenizer" / "token_bytes.npy")
+    assert cs["base_target_bytes"] == int(tb0[base_val[1:2048 + 1]].sum())
+    res = R.rescore(str(out / "var"), str(d), ["fineweb_edu"], device="cpu", stride=8)
+    e = res["sets"]["fineweb_edu"]
+    assert abs(e["diff_vs_stored"]) < 1e-9 and res["data_dir"].endswith("vocab/v128")
+    assert e["sliding"]["scored_tokens"] >= e["full"]["scored_tokens"]
+    b = run(tiny_cfg(run_id="base_nofields", **common), 0, str(d), str(out))
+    assert "data_check" not in b and "curve_subset" not in b and b["config"]["data_variant"] == ""
+    for bad in (dict(vocab_size=128, data_variant="v64"), dict(vocab_size=8192, data_variant="v8192"),
+                dict(vocab_size=128, data_variant="128"), dict(vocab_size=128, data_variant="v128", corpus="dclm")):
+        try:
+            load_config(None, bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted {bad}")
+    try:                                      # a variant run never falls back to the baseline files
+        run(tiny_cfg(run_id="var_missing", vocab_size=256, data_variant="v256", **common), 0, str(d), str(out))
+        raise AssertionError("ran without variant files")
+    except FileNotFoundError:
+        pass
+
+
+def test_sliding_bpb(d: Path):
+    """E07 diagnostic (D36): overlapping-window BPB equals evaluate_bpb exactly at stride == T, scores every
+    target once (same targets and bytes as a brute-force count)."""
+    from bpb import evaluate_bpb_sliding
+    torch.manual_seed(0)
+    m = GPT(GPTConfig(n_layer=1, n_head=2, n_embd=16, block_size=32, vocab_size=V, dropout=0.0, bias=False))
+    toks = np.fromfile(d / "tokens" / "fineweb_edu" / "val.bin", dtype=np.uint16)[:3001]
+    tb = np.load(d / "tokenizer" / "token_bytes.npy")
+    a = evaluate_bpb(m, toks, tb, 32, 7, EOT, "cpu")
+    b = evaluate_bpb_sliding(m, toks, tb, 32, 32, 7, EOT, "cpu")
+    assert a["bpb"] == b["bpb"] and a["scored_tokens"] == b["scored_tokens"] and a["scored_bytes"] == b["scored_bytes"]
+    for stride in (8, 13):
+        c = evaluate_bpb_sliding(m, toks, tb, 32, stride, 5, EOT, "cpu")
+        n_win = (len(toks) - 1 - 32) // stride + 1
+        last = (n_win - 1) * stride + 32                     # last target index scored
+        y = toks[1:last + 1]
+        assert c["scored_tokens"] == int((y != EOT).sum()) and c["scored_bytes"] == int(tb[y].sum())
+        assert c["eot_targets_excluded"] == int((y == EOT).sum())
+
+
 if __name__ == "__main__":
     tmp = Path(tempfile.mkdtemp())
     d, out = tmp / "data", tmp / "runs"
@@ -438,6 +532,8 @@ if __name__ == "__main__":
              ("shifted windows per pass (E04 F3)", test_shifted_subset, (d, out)),
              ("corpus mixture: shares, pools, resume (E03 R8)", test_corpus_mix, (d, out)),
              ("Muon optimizer: parameter split, schedule, resume (E05)", test_muon_optimizer, (d, out)),
+             ("vocabulary variant data, byte-matched curve, hashes, rescore (E07)", test_data_variant, (d, out)),
+             ("sliding-window BPB = declared BPB at stride T; each target once (E07)", test_sliding_bpb, (d,)),
              ("13-gram contamination check = brute force (E03 R3)", test_contamination_check, ()),
              ("rescore reproduces stored BPB; document removal", test_rescore_reproduces_and_excludes, (d, out)),
              ("all config files load with correct types", test_all_config_files_load, ()),

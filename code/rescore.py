@@ -17,6 +17,8 @@ inherent to scoring a different document set and identical for every model score
 Must run in the Modal workspace that holds the checkpoint:
     modal run modal_app.py::rescore --run-ids "E03-N49_dclm__s0,E03-N49_dclm__s1" --exclude contamination
     modal run modal_app.py::rescore --run-ids "E01-N26_lr4e-3_60min__s0" --sets "fineweb,dclm,wikipedia"
+    modal run modal_app.py::rescore --run-ids "E07-V4096_lr2e-3_60min__s0" --sets fineweb_edu --stride 128
+(E07 diagnostic, D36: overlapping windows; vocabulary-variant models are scored on their own variant's files.)
 """
 from __future__ import annotations
 
@@ -27,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from bpb import evaluate_bpb
+from bpb import evaluate_bpb, evaluate_bpb_sliding
 from model import GPT, GPTConfig
 
 
@@ -59,10 +61,15 @@ def load_model(path: Path, device: str):
     return m.to(device).eval(), c, ck.get("seed")
 
 
-def rescore(run_dir: str, data_dir: str, sets, exclude: dict | None = None, device: str | None = None) -> dict:
+def rescore(run_dir: str, data_dir: str, sets, exclude: dict | None = None, device: str | None = None,
+            stride: int = 0) -> dict:
+    """`stride` > 0 (E07 diagnostic, D36): also score with overlapping windows (bpb.evaluate_bpb_sliding).
+    A model trained on a vocabulary variant (config data_variant) is scored on that variant's files."""
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     run_dir, data_dir = Path(run_dir), Path(data_dir)
     model, c, seed = load_model(run_dir / "final_model.pt", device)
+    if c.get("data_variant"):
+        data_dir = data_dir / "vocab" / c["data_variant"]
     ctx = (torch.autocast(device_type="cuda", dtype=torch.bfloat16)
            if device == "cuda" and c.get("dtype") == "bfloat16" else contextlib.nullcontext())
     meta = json.loads((data_dir / "tokenizer" / "meta.json").read_text())
@@ -71,7 +78,9 @@ def rescore(run_dir: str, data_dir: str, sets, exclude: dict | None = None, devi
     rj = run_dir / "result.json"
     if rj.exists():
         stored = {k: v.get("bpb") for k, v in (json.loads(rj.read_text()).get("final_val") or {}).items()}
-    out = dict(run_id=run_dir.name, seed=seed, device=device, sets={})
+    if meta["vocab_size"] != c["vocab_size"]:
+        raise ValueError(f"tokenizer vocab {meta['vocab_size']} != model vocab {c['vocab_size']}")
+    out = dict(run_id=run_dir.name, seed=seed, device=device, data_dir=str(data_dir), sets={})
     for s in sets:
         toks = np.fromfile(data_dir / "tokens" / s / "val.bin", dtype=np.uint16)
         full = evaluate_bpb(model, toks, tb, c["block_size"], c.get("eval_batch", 32), meta["eot_id"], device, ctx)
@@ -82,5 +91,8 @@ def rescore(run_dir: str, data_dir: str, sets, exclude: dict | None = None, devi
             t2, kept, removed = rebuild_without(toks, meta["eot_id"], ex)
             r2 = evaluate_bpb(model, t2, tb, c["block_size"], c.get("eval_batch", 32), meta["eot_id"], device, ctx)
             e["excluded"] = dict(r2, docs_kept=kept, docs_removed=removed)
+        if stride:
+            e["sliding"] = evaluate_bpb_sliding(model, toks, tb, c["block_size"], stride, c.get("eval_batch", 32),
+                                                meta["eot_id"], device, ctx)
         out["sets"][s] = e
     return out

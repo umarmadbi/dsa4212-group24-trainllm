@@ -1,0 +1,27 @@
+# E07 (D36) 60-MIN RUN under the declared budget, vocabulary 16,384 (data /data/vocab/v16384/), N49 11 x 576 AdamW.
+# One file per LR (no placeholder): the 15-min pilots pick the LR; `python code/summarize.py E07` prints which file
+# to launch. Compared with E02-N49 (8,192 vocabulary, seeds 0-2). Rules: docs/experiments/E07_vocabulary.md.
+run_id: E07-V16384_lr1e-3_60min
+experiment: E07
+corpus: fineweb_edu
+data_variant: v16384
+eval_corpora: [fineweb_edu, fineweb, dclm, wikipedia]   # headline = first; others scored after training (D18)
+n_layer: 11
+n_head: 9
+n_embd: 576
+block_size: 512
+vocab_size: 16384
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 1.0e-03
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 3600
+eval_every_frac: 0.05
+ckpt_every_s: 600
+compile: true
+dtype: bfloat16

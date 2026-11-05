@@ -88,6 +88,13 @@ number used for decisions; FineWeb, DCLM and Wikipedia are extra information, sc
 | `W6x768_lr*_15min.yaml`, `D19x448_lr*_15min.yaml` | Learning-rate pilots (5e-4, 1e-3, 2e-3, 4e-3; the declared E01 protocol, D30) for a shallow-wide (6 x 768) and a deep-narrow (19 x 448) model of N49's size |
 | `W6x768_lr*_60min.yaml`, `D19x448_lr*_60min.yaml` | The two shapes for 60 minutes, one file per LR; only the picked LR is run (seed 0; seeds 1, 2 on a close call). Compared with N49 (11 x 576). `python code/summarize.py E06` prints which to launch |
 
+## E07/: vocabulary size (Phase 5)
+
+| Files | What they are |
+|---|---|
+| `V4096_lr*_15min.yaml`, `V16384_lr*_15min.yaml`, `V32768_lr*_15min.yaml` | Learning-rate pilots (5e-4, 1e-3, 2e-3, 4e-3: the grid N49 had in E01) for N49 (11 x 576, AdamW) with a 4,096 / 16,384 / 32,768-token vocabulary (`data_variant`, data built by `tools/prepare_vocab.py`). The `lr2.5e-4` and `lr8e-3` files are edge extensions, run only if `summarize.py E07` asks for them |
+| `V*_lr*_60min.yaml` | The 60-minute runs, one file per LR; only the picked LR is run (seed 0; seeds 1, 2 on a close call). Compared with E02-N49 (8,192 vocabulary). `python code/summarize.py E07` prints which to launch. Rules: decision D36 |
+
 ## Settings (every field a config can have)
 
 Fields left out take the default from `code/config.py`. Unknown fields are rejected.
@@ -106,6 +113,7 @@ Fields left out take the default from `code/config.py`. Unknown fields are rejec
 | `muon_lr` | 0 | Peak Muon learning rate (needed for `muon`); the same warm-up/cosine schedule |
 | `muon_momentum`, `muon_ns_steps`, `muon_adjust_lr` | 0.95, 5, match_rms_adamw | Muon settings (PyTorch defaults; update size matched to AdamW) |
 | `eval_corpora` | `[fineweb_edu]` | Validation splits scored at the end; the first one is the headline number |
+| `data_variant` | (empty) | Empty = the 8,192 baseline data. `v<V>` = the vocabulary variant at `/data/vocab/v<V>/` (Phase 5); must equal `vocab_size`, training corpus `fineweb_edu` only. With a variant the learning-curve subset is cut to the same text as the baseline's, and the data files are hashed into the result |
 | `curve_corpus`, `curve_tokens` | `fineweb_edu`, 262,144 | Small validation subset scored during training for the learning curve |
 | `n_layer`, `n_head`, `n_embd` | | Model shape (layers, attention heads, width) |
 | `block_size` | 512 | Context length in tokens |
