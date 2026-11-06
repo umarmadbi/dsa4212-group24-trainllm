@@ -1,0 +1,35 @@
+{
+ "run_id": "E02-N49__s0",
+ "seed": 0,
+ "device": "cuda",
+ "data_dir": "/data",
+ "sets": {
+  "fineweb_edu": {
+   "full": {
+    "bpb": 1.1936046400211502,
+    "loss_per_token": 3.1986462369549886,
+    "scored_tokens": 2586692,
+    "scored_bytes": 10000575,
+    "eot_targets_excluded": 1980,
+    "bytes_per_token": 3.866163810766802,
+    "windows": 5056,
+    "context": 512
+   },
+   "stored_bpb": 1.1936046400211502,
+   "diff_vs_stored": 0.0,
+   "sliding": {
+    "bpb": 1.1594040404030068,
+    "loss_per_token": 3.106903562719779,
+    "scored_tokens": 2587076,
+    "scored_bytes": 10001766,
+    "eot_targets_excluded": 1980,
+    "bytes_per_token": 3.866050320902826,
+    "windows": 20224,
+    "context": 512,
+    "stride": 128
+   }
+  }
+ },
+ "gpu_name": "NVIDIA L4",
+ "tag": "slide128"
+}

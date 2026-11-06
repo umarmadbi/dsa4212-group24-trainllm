@@ -1,0 +1,35 @@
+{
+ "run_id": "E07-V32768_lr2e-3_60min__s0",
+ "seed": 0,
+ "device": "cuda",
+ "data_dir": "/data/vocab/v32768",
+ "sets": {
+  "fineweb_edu": {
+   "full": {
+    "bpb": 1.1773728071397875,
+    "loss_per_token": 3.7365315671615744,
+    "scored_tokens": 2184260,
+    "scored_bytes": 10000772,
+    "eot_targets_excluded": 1980,
+    "bytes_per_token": 4.578562991585251,
+    "windows": 4270,
+    "context": 512
+   },
+   "stored_bpb": 1.1773728071397875,
+   "diff_vs_stored": 0.0,
+   "sliding": {
+    "bpb": 1.1489159591528868,
+    "loss_per_token": 3.646140159219851,
+    "scored_tokens": 2184516,
+    "scored_bytes": 10001724,
+    "eot_targets_excluded": 1980,
+    "bytes_per_token": 4.578462231450811,
+    "windows": 17079,
+    "context": 512,
+    "stride": 128
+   }
+  }
+ },
+ "gpu_name": "NVIDIA L4",
+ "tag": "slide128"
+}
