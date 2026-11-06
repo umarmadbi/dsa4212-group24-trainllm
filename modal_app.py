@@ -399,6 +399,11 @@ def test_one(run_ids: list, frozen_text: str, contamination: dict, frozen_commit
         except T.LockError as e:
             outs.append({"run_id": rid, "error": str(e)})
             continue
+        except Exception as e:  # noqa: BLE001  (D46: one model's failure must not stop the others; not saved, so retried)
+            import traceback
+            outs.append({"run_id": rid, "error": f"scoring failed (not saved; rerun test_eval to retry): {e!r}",
+                         "traceback": traceback.format_exc()[-2000:]})
+            continue
         res.update(gpu_name=gpu_name, frozen_commit=frozen_commit, seconds=round(time.time() - t0, 1),
                    scored_at_utc=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
         f.write_text(json.dumps(res))
@@ -457,7 +462,14 @@ def test_eval(run_ids: str = "", tiers: str = "core,data,extra", fetch_only: boo
             raise SystemExit(f"test lock: already scored (results/test): {done}. Test scores are computed once.")
         cont = json.loads(Path("results/contamination.json").read_text())
         print(f"scoring {len(ids)} frozen run(s) once, in one container: {', '.join(ids)}")
-        results = test_one.remote(ids, frozen_text, cont, frozen_commit)
+        # D46: spawn, not .remote(): a .remote() call is cancelled when the laptop's connection drops, even with
+        # --detach (this happened on the first attempt); a spawned call keeps running (as launch/rescore, D16).
+        call = test_one.spawn(ids, frozen_text, cont, frozen_commit)
+        try:
+            results = call.get()
+        except Exception as e:  # noqa: BLE001
+            raise SystemExit(f"lost the connection while waiting ({e!r}). The scoring keeps running on Modal and saves "
+                             "each model as it finishes: later run the same command with --fetch-only (same workspace).")
     ok = [r for r in results if "error" not in r]
     ledger = Path("results/compute_ledger.csv")
     if ok and f"TEST-{ws}," not in ledger.read_text(encoding="utf-8"):     # one row per workspace (also after --fetch-only)
