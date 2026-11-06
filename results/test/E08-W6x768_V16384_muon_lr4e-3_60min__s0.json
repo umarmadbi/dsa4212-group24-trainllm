@@ -1,0 +1,168 @@
+{
+ "run_id": "E08-W6x768_V16384_muon_lr4e-3_60min__s0",
+ "seed": 0,
+ "device": "cuda",
+ "data_dir": "/data/vocab/v16384",
+ "split": "test",
+ "sets": {
+  "fineweb_edu": {
+   "full": {
+    "bpb": 1.150236342868459,
+    "loss_per_token": 3.392910501816307,
+    "scored_tokens": 2352139,
+    "scored_bytes": 10009741,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 4.25559076228063,
+    "windows": 4598,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.151549717511478,
+    "loss_per_token": 3.39522947908189,
+    "scored_tokens": 2205262,
+    "scored_bytes": 9380396,
+    "eot_targets_excluded": 1970,
+    "bytes_per_token": 4.253642424346857,
+    "windows": 4311,
+    "context": 512,
+    "docs_kept": 1971,
+    "docs_removed": 67
+   },
+   "sliding": {
+    "bpb": 1.1195744321810166,
+    "loss_per_token": 3.302433366603758,
+    "scored_tokens": 2352395,
+    "scored_bytes": 10010733,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 4.255549344391567,
+    "windows": 18391,
+    "context": 512,
+    "stride": 128
+   }
+  },
+  "fineweb": {
+   "full": {
+    "bpb": 1.323793594056627,
+    "loss_per_token": 3.77189270298327,
+    "scored_tokens": 2437421,
+    "scored_bytes": 10019456,
+    "eot_targets_excluded": 3283,
+    "bytes_per_token": 4.110679279451519,
+    "windows": 4767,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.3238747822826638,
+    "loss_per_token": 3.7721775988241606,
+    "scored_tokens": 2412883,
+    "scored_bytes": 9918729,
+    "eot_targets_excluded": 3245,
+    "bytes_per_token": 4.110737652841021,
+    "windows": 4719,
+    "context": 512,
+    "docs_kept": 3246,
+    "docs_removed": 38
+   }
+  },
+  "dclm": {
+   "full": {
+    "bpb": 1.4899055893395183,
+    "loss_per_token": 4.077689521891503,
+    "scored_tokens": 2532435,
+    "scored_bytes": 9999269,
+    "eot_targets_excluded": 1965,
+    "bytes_per_token": 3.9484800202176955,
+    "windows": 4950,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.4907835406800574,
+    "loss_per_token": 4.080453764918538,
+    "scored_tokens": 2492523,
+    "scored_bytes": 9842549,
+    "eot_targets_excluded": 1941,
+    "bytes_per_token": 3.9488297600463467,
+    "windows": 4872,
+    "context": 512,
+    "docs_kept": 1942,
+    "docs_removed": 24
+   }
+  },
+  "wikipedia": {
+   "full": {
+    "bpb": 1.4110887159742476,
+    "loss_per_token": 3.6738813479550783,
+    "scored_tokens": 2662123,
+    "scored_bytes": 9999389,
+    "eot_targets_excluded": 3349,
+    "bytes_per_token": 3.7561709207275547,
+    "windows": 5206,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.4119863665899128,
+    "loss_per_token": 3.6739823224934693,
+    "scored_tokens": 2647795,
+    "scored_bytes": 9939521,
+    "eot_targets_excluded": 3341,
+    "bytes_per_token": 3.75388615810514,
+    "windows": 5178,
+    "context": 512,
+    "docs_kept": 3342,
+    "docs_removed": 8
+   }
+  }
+ },
+ "samples": [
+  {
+   "prompt": "The water cycle describes how water",
+   "text": "The water cycle describes how water flows into rivers.\nWater, water is stored in the aquifer through a system. Water is not stored to electricity or in the body. This means that the water is not used for any purpose.\nIn the United States, the water cycle describes the water cycle to the state of Colorado. In the United Kingdom, the water cycle describes the water cycle to the state of Colorado.Diabetes and heart disease is not a chronic disease, because the body's ability to absorb all the"
+  },
+  {
+   "prompt": "The main causes of the French Revolution were",
+   "text": "The main causes of the French Revolution were, and the French were, the French, and the French. The French had no choice but to allow the French to escape. The French were forced to flee to the United States. The French were forced to flee across the Mediterranean to escape. They used to stay in the French region of Europe.\nThe French were forced to flee to Europe and return to France. After the French surrender they were forced to leave their country in Italy and to Spain. The French had to spend some time in"
+  },
+  {
+   "prompt": "To solve a quadratic equation, you can",
+   "text": "To solve a quadratic equation, you can solve the following:\n- The equation can be used to solve this equation:\n- With a finite number of lines, you can solve the following equation:\n- You can solve the following equation:\n- You can solve the following equation:\n- You can find the following equation:\n- You can solve a quadratic equation:\n- You can solve a quadratic equation:\n- You can solve a quadratic equation:\n- You can solve complex quad"
+  }
+ ],
+ "sample_settings": {
+  "max_new_tokens": 100,
+  "temperature": 0.8,
+  "top_k": 50,
+  "seed": 1234
+ },
+ "entry": {
+  "sets": [
+   "fineweb_edu",
+   "fineweb",
+   "dclm",
+   "wikipedia"
+  ],
+  "sliding": 128,
+  "tier": "core",
+  "workspace": "jinkyungjeon",
+  "group": "Phase 6 recipe RA (Muon + 6x768 + 16k)",
+  "samples": true
+ },
+ "frozen_sha256": "2f418d33c2d5c41710f0a84193b7c5c106ab1ef5e2b031457b33568634769903",
+ "excluded_docs": {
+  "fineweb_edu": 67,
+  "fineweb": 38,
+  "dclm": 24,
+  "wikipedia": 8
+ },
+ "gpu_name": "NVIDIA L4",
+ "frozen_commit": "3ba1d903b00f327f981f00f8e36bb1cf6b43ba54",
+ "seconds": 150.5,
+ "scored_at_utc": "2026-11-06T10:30:19+00:00"
+}

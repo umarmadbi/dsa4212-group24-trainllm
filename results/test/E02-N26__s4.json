@@ -1,0 +1,52 @@
+{
+ "run_id": "E02-N26__s4",
+ "seed": 4,
+ "device": "cuda",
+ "data_dir": "/data",
+ "split": "test",
+ "sets": {
+  "fineweb_edu": {
+   "full": {
+    "bpb": 1.2123634915033619,
+    "loss_per_token": 3.242619694631947,
+    "scored_tokens": 2594315,
+    "scored_bytes": 10010607,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 3.8586705932009027,
+    "windows": 5071,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.212673977231183,
+    "loss_per_token": 3.2435009859026205,
+    "scored_tokens": 2430542,
+    "scored_bytes": 9378808,
+    "eot_targets_excluded": 1970,
+    "bytes_per_token": 3.858731097837437,
+    "windows": 4751,
+    "context": 512,
+    "docs_kept": 1971,
+    "docs_removed": 67
+   }
+  }
+ },
+ "entry": {
+  "sets": [
+   "fineweb_edu"
+  ],
+  "sliding": 0,
+  "tier": "extra",
+  "workspace": "joshuahanrc",
+  "group": "Phase 2 size"
+ },
+ "frozen_sha256": "2f418d33c2d5c41710f0a84193b7c5c106ab1ef5e2b031457b33568634769903",
+ "excluded_docs": {
+  "fineweb_edu": 67
+ },
+ "gpu_name": "NVIDIA L4",
+ "frozen_commit": "3ba1d903b00f327f981f00f8e36bb1cf6b43ba54",
+ "seconds": 15.5,
+ "scored_at_utc": "2026-11-06T09:52:12+00:00"
+}

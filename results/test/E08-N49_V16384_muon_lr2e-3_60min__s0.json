@@ -1,0 +1,168 @@
+{
+ "run_id": "E08-N49_V16384_muon_lr2e-3_60min__s0",
+ "seed": 0,
+ "device": "cuda",
+ "data_dir": "/data/vocab/v16384",
+ "split": "test",
+ "sets": {
+  "fineweb_edu": {
+   "full": {
+    "bpb": 1.1584849514479738,
+    "loss_per_token": 3.4172418410652603,
+    "scored_tokens": 2352139,
+    "scored_bytes": 10009741,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 4.25559076228063,
+    "windows": 4598,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.1596203631211088,
+    "loss_per_token": 3.4190249726436073,
+    "scored_tokens": 2205262,
+    "scored_bytes": 9380396,
+    "eot_targets_excluded": 1970,
+    "bytes_per_token": 4.253642424346857,
+    "windows": 4311,
+    "context": 512,
+    "docs_kept": 1971,
+    "docs_removed": 67
+   },
+   "sliding": {
+    "bpb": 1.1269701635267206,
+    "loss_per_token": 3.324248718280655,
+    "scored_tokens": 2352395,
+    "scored_bytes": 10010733,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 4.255549344391567,
+    "windows": 18391,
+    "context": 512,
+    "stride": 128
+   }
+  },
+  "fineweb": {
+   "full": {
+    "bpb": 1.3325455839570293,
+    "loss_per_token": 3.796829798154391,
+    "scored_tokens": 2437421,
+    "scored_bytes": 10019456,
+    "eot_targets_excluded": 3283,
+    "bytes_per_token": 4.110679279451519,
+    "windows": 4767,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.3327037941967472,
+    "loss_per_token": 3.7973345104956953,
+    "scored_tokens": 2412883,
+    "scored_bytes": 9918729,
+    "eot_targets_excluded": 3245,
+    "bytes_per_token": 4.110737652841021,
+    "windows": 4719,
+    "context": 512,
+    "docs_kept": 3246,
+    "docs_removed": 38
+   }
+  },
+  "dclm": {
+   "full": {
+    "bpb": 1.5013230637465362,
+    "loss_per_token": 4.108937754054052,
+    "scored_tokens": 2532435,
+    "scored_bytes": 9999269,
+    "eot_targets_excluded": 1965,
+    "bytes_per_token": 3.9484800202176955,
+    "windows": 4950,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.502040815813252,
+    "loss_per_token": 4.111266280247902,
+    "scored_tokens": 2492523,
+    "scored_bytes": 9842549,
+    "eot_targets_excluded": 1941,
+    "bytes_per_token": 3.9488297600463467,
+    "windows": 4872,
+    "context": 512,
+    "docs_kept": 1942,
+    "docs_removed": 24
+   }
+  },
+  "wikipedia": {
+   "full": {
+    "bpb": 1.422914099466368,
+    "loss_per_token": 3.7046696714334657,
+    "scored_tokens": 2662123,
+    "scored_bytes": 9999389,
+    "eot_targets_excluded": 3349,
+    "bytes_per_token": 3.7561709207275547,
+    "windows": 5206,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.4238930179335234,
+    "loss_per_token": 3.704963376979262,
+    "scored_tokens": 2647795,
+    "scored_bytes": 9939521,
+    "eot_targets_excluded": 3341,
+    "bytes_per_token": 3.75388615810514,
+    "windows": 5178,
+    "context": 512,
+    "docs_kept": 3342,
+    "docs_removed": 8
+   }
+  }
+ },
+ "samples": [
+  {
+   "prompt": "The water cycle describes how water",
+   "text": "The water cycle describes how water evaporates.\nWater is a process that occurs in a natural process, and its chemical composition is not as strong as in water. It is also called an \"silentime.\"\nWater is a form of heat that's created through the action of dissolved oxygen, air, and water. When dissolved oxygen is released into the atmosphere, it can cause a mixture of bacteria, viruses, and other organisms to get a free and balanced reaction to the oxygen available for use in the"
+  },
+  {
+   "prompt": "The main causes of the French Revolution were",
+   "text": "The main causes of the French Revolution were poverty and the social problems of the early 1840s. The new social policies and practices of the 17th and 1860s were replaced by nationalists, including the 1860s.\nThe French Revolution had a marked effect on the French Revolution and many European revolts were not so successful. The French Revolution was a period of hard and rebellious nature, but the French Revolution was the first and the most dramatic form of European revolution in the history of Europe. The French Revolution had been"
+  },
+  {
+   "prompt": "To solve a quadratic equation, you can",
+   "text": "To solve a quadratic equation, you can do this by:\n- Elements = Subtract Rate, Subtract Rate, Subtract Rate, Subtract Rate, Subtract Rate\nWhat is the difference between two roots in the equation?\nThe difference between two roots in the equation is the difference between two roots, and only two roots.\nYou can solve this problem by:\n- Elements = Subtract Rate, Subtract Rate\nWhat is the difference"
+  }
+ ],
+ "sample_settings": {
+  "max_new_tokens": 100,
+  "temperature": 0.8,
+  "top_k": 50,
+  "seed": 1234
+ },
+ "entry": {
+  "sets": [
+   "fineweb_edu",
+   "fineweb",
+   "dclm",
+   "wikipedia"
+  ],
+  "sliding": 128,
+  "tier": "core",
+  "workspace": "jinkyungjeon",
+  "group": "Phase 6 recipe RB (Muon + 11x576 + 16k), declared final",
+  "samples": true
+ },
+ "frozen_sha256": "2f418d33c2d5c41710f0a84193b7c5c106ab1ef5e2b031457b33568634769903",
+ "excluded_docs": {
+  "fineweb_edu": 67,
+  "fineweb": 38,
+  "dclm": 24,
+  "wikipedia": 8
+ },
+ "gpu_name": "NVIDIA L4",
+ "frozen_commit": "3ba1d903b00f327f981f00f8e36bb1cf6b43ba54",
+ "seconds": 168.5,
+ "scored_at_utc": "2026-11-06T10:38:06+00:00"
+}

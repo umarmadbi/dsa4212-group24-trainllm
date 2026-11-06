@@ -1,0 +1,147 @@
+{
+ "run_id": "E05-N49_muon_lr2e-3_60min__s1",
+ "seed": 1,
+ "device": "cuda",
+ "data_dir": "/data",
+ "split": "test",
+ "sets": {
+  "fineweb_edu": {
+   "full": {
+    "bpb": 1.1726246839221526,
+    "loss_per_token": 3.136333221138563,
+    "scored_tokens": 2594315,
+    "scored_bytes": 10010607,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 3.8586705932009027,
+    "windows": 5071,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.173164982384305,
+    "loss_per_token": 3.1378275187185873,
+    "scored_tokens": 2430542,
+    "scored_bytes": 9378808,
+    "eot_targets_excluded": 1970,
+    "bytes_per_token": 3.858731097837437,
+    "windows": 4751,
+    "context": 512,
+    "docs_kept": 1971,
+    "docs_removed": 67
+   },
+   "sliding": {
+    "bpb": 1.138386573041967,
+    "loss_per_token": 3.044759057593426,
+    "scored_tokens": 2594315,
+    "scored_bytes": 10010607,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 3.8586705932009027,
+    "windows": 20281,
+    "context": 512,
+    "stride": 128
+   }
+  },
+  "fineweb": {
+   "full": {
+    "bpb": 1.3459926086338687,
+    "loss_per_token": 3.4961216618795468,
+    "scored_tokens": 2673453,
+    "scored_bytes": 10018229,
+    "eot_targets_excluded": 3283,
+    "bytes_per_token": 3.7472994662707744,
+    "windows": 5228,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.3461173669545774,
+    "loss_per_token": 3.4966229229114036,
+    "scored_tokens": 2646867,
+    "scored_bytes": 9919106,
+    "eot_targets_excluded": 3245,
+    "bytes_per_token": 3.747489390286705,
+    "windows": 5176,
+    "context": 512,
+    "docs_kept": 3246,
+    "docs_removed": 38
+   }
+  },
+  "dclm": {
+   "full": {
+    "bpb": 1.516546416744949,
+    "loss_per_token": 3.8247632659076105,
+    "scored_tokens": 2747987,
+    "scored_bytes": 9998574,
+    "eot_targets_excluded": 1965,
+    "bytes_per_token": 3.6385084791158038,
+    "windows": 5371,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.5175731990258468,
+    "loss_per_token": 3.828205234174469,
+    "scored_tokens": 2704491,
+    "scored_bytes": 9842505,
+    "eot_targets_excluded": 1941,
+    "bytes_per_token": 3.6393188219151034,
+    "windows": 5286,
+    "context": 512,
+    "docs_kept": 1942,
+    "docs_removed": 24
+   }
+  },
+  "wikipedia": {
+   "full": {
+    "bpb": 1.4353524456444227,
+    "loss_per_token": 3.34949007278748,
+    "scored_tokens": 2970347,
+    "scored_bytes": 10000043,
+    "eot_targets_excluded": 3349,
+    "bytes_per_token": 3.3666245054870694,
+    "windows": 5808,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.4365392505634689,
+    "loss_per_token": 3.3501171402409984,
+    "scored_tokens": 2954483,
+    "scored_bytes": 9940278,
+    "eot_targets_excluded": 3341,
+    "bytes_per_token": 3.364472904396471,
+    "windows": 5777,
+    "context": 512,
+    "docs_kept": 3342,
+    "docs_removed": 8
+   }
+  }
+ },
+ "entry": {
+  "sets": [
+   "fineweb_edu",
+   "fineweb",
+   "dclm",
+   "wikipedia"
+  ],
+  "sliding": 128,
+  "tier": "core",
+  "workspace": "giraffes573",
+  "group": "Phase 4 winner: Muon"
+ },
+ "frozen_sha256": "2f418d33c2d5c41710f0a84193b7c5c106ab1ef5e2b031457b33568634769903",
+ "excluded_docs": {
+  "fineweb_edu": 67,
+  "fineweb": 38,
+  "dclm": 24,
+  "wikipedia": 8
+ },
+ "gpu_name": "NVIDIA L4",
+ "frozen_commit": "3ba1d903b00f327f981f00f8e36bb1cf6b43ba54",
+ "seconds": 169.9,
+ "scored_at_utc": "2026-11-06T09:50:38+00:00"
+}

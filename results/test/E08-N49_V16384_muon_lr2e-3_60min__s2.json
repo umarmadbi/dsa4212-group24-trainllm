@@ -1,0 +1,147 @@
+{
+ "run_id": "E08-N49_V16384_muon_lr2e-3_60min__s2",
+ "seed": 2,
+ "device": "cuda",
+ "data_dir": "/data/vocab/v16384",
+ "split": "test",
+ "sets": {
+  "fineweb_edu": {
+   "full": {
+    "bpb": 1.1557246651429713,
+    "loss_per_token": 3.4090996844986305,
+    "scored_tokens": 2352139,
+    "scored_bytes": 10009741,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 4.25559076228063,
+    "windows": 4598,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.1567191959821885,
+    "loss_per_token": 3.4104711707156348,
+    "scored_tokens": 2205262,
+    "scored_bytes": 9380396,
+    "eot_targets_excluded": 1970,
+    "bytes_per_token": 4.253642424346857,
+    "windows": 4311,
+    "context": 512,
+    "docs_kept": 1971,
+    "docs_removed": 67
+   },
+   "sliding": {
+    "bpb": 1.124200486289415,
+    "loss_per_token": 3.316078940318342,
+    "scored_tokens": 2352395,
+    "scored_bytes": 10010733,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 4.255549344391567,
+    "windows": 18391,
+    "context": 512,
+    "stride": 128
+   }
+  },
+  "fineweb": {
+   "full": {
+    "bpb": 1.3301872988870647,
+    "loss_per_token": 3.7901103229379447,
+    "scored_tokens": 2437421,
+    "scored_bytes": 10019456,
+    "eot_targets_excluded": 3283,
+    "bytes_per_token": 4.110679279451519,
+    "windows": 4767,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.3302521128667235,
+    "loss_per_token": 3.790348821579841,
+    "scored_tokens": 2412883,
+    "scored_bytes": 9918729,
+    "eot_targets_excluded": 3245,
+    "bytes_per_token": 4.110737652841021,
+    "windows": 4719,
+    "context": 512,
+    "docs_kept": 3246,
+    "docs_removed": 38
+   }
+  },
+  "dclm": {
+   "full": {
+    "bpb": 1.5002610303316217,
+    "loss_per_token": 4.106031098384806,
+    "scored_tokens": 2532435,
+    "scored_bytes": 9999269,
+    "eot_targets_excluded": 1965,
+    "bytes_per_token": 3.9484800202176955,
+    "windows": 4950,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.5009163874375184,
+    "loss_per_token": 4.108188584610713,
+    "scored_tokens": 2492523,
+    "scored_bytes": 9842549,
+    "eot_targets_excluded": 1941,
+    "bytes_per_token": 3.9488297600463467,
+    "windows": 4872,
+    "context": 512,
+    "docs_kept": 1942,
+    "docs_removed": 24
+   }
+  },
+  "wikipedia": {
+   "full": {
+    "bpb": 1.4235987313342728,
+    "loss_per_token": 3.7064521647815005,
+    "scored_tokens": 2662123,
+    "scored_bytes": 9999389,
+    "eot_targets_excluded": 3349,
+    "bytes_per_token": 3.7561709207275547,
+    "windows": 5206,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.4247409263105908,
+    "loss_per_token": 3.7071696308512188,
+    "scored_tokens": 2647795,
+    "scored_bytes": 9939521,
+    "eot_targets_excluded": 3341,
+    "bytes_per_token": 3.75388615810514,
+    "windows": 5178,
+    "context": 512,
+    "docs_kept": 3342,
+    "docs_removed": 8
+   }
+  }
+ },
+ "entry": {
+  "sets": [
+   "fineweb_edu",
+   "fineweb",
+   "dclm",
+   "wikipedia"
+  ],
+  "sliding": 128,
+  "tier": "core",
+  "workspace": "umarmadbi",
+  "group": "Phase 6 recipe RB (Muon + 11x576 + 16k), declared final"
+ },
+ "frozen_sha256": "2f418d33c2d5c41710f0a84193b7c5c106ab1ef5e2b031457b33568634769903",
+ "excluded_docs": {
+  "fineweb_edu": 67,
+  "fineweb": 38,
+  "dclm": 24,
+  "wikipedia": 8
+ },
+ "gpu_name": "NVIDIA L4",
+ "frozen_commit": "3ba1d903b00f327f981f00f8e36bb1cf6b43ba54",
+ "seconds": 166.7,
+ "scored_at_utc": "2026-11-06T10:10:39+00:00"
+}

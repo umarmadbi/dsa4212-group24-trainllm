@@ -1,0 +1,147 @@
+{
+ "run_id": "E07-V4096_lr2e-3_60min__s0",
+ "seed": 0,
+ "device": "cuda",
+ "data_dir": "/data/vocab/v4096",
+ "split": "test",
+ "sets": {
+  "fineweb_edu": {
+   "full": {
+    "bpb": 1.2087908186935699,
+    "loss_per_token": 2.8555244379084566,
+    "scored_tokens": 2937355,
+    "scored_bytes": 10010729,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 3.408075973111864,
+    "windows": 5741,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.2089683959879887,
+    "loss_per_token": 2.856948209374848,
+    "scored_tokens": 2751054,
+    "scored_bytes": 9379098,
+    "eot_targets_excluded": 1970,
+    "bytes_per_token": 3.4092744090083293,
+    "windows": 5377,
+    "context": 512,
+    "docs_kept": 1971,
+    "docs_removed": 67
+   },
+   "sliding": {
+    "bpb": 1.1714906724970569,
+    "loss_per_token": 2.767410367752947,
+    "scored_tokens": 2937355,
+    "scored_bytes": 10010729,
+    "eot_targets_excluded": 2037,
+    "bytes_per_token": 3.408075973111864,
+    "windows": 22961,
+    "context": 512,
+    "stride": 128
+   }
+  },
+  "fineweb": {
+   "full": {
+    "bpb": 1.3784133744784055,
+    "loss_per_token": 3.182518832947173,
+    "scored_tokens": 3007789,
+    "scored_bytes": 10018747,
+    "eot_targets_excluded": 3283,
+    "bytes_per_token": 3.330934118051499,
+    "windows": 5881,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.3782480987100187,
+    "loss_per_token": 3.1824097204454693,
+    "scored_tokens": 2977619,
+    "scored_bytes": 9919102,
+    "eot_targets_excluded": 3245,
+    "bytes_per_token": 3.3312193400163017,
+    "windows": 5822,
+    "context": 512,
+    "docs_kept": 3246,
+    "docs_removed": 38
+   }
+  },
+  "dclm": {
+   "full": {
+    "bpb": 1.5672702251890671,
+    "loss_per_token": 3.5519518401118626,
+    "scored_tokens": 3058259,
+    "scored_bytes": 9999355,
+    "eot_targets_excluded": 1965,
+    "bytes_per_token": 3.2696233379841275,
+    "windows": 5977,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.567885080156533,
+    "loss_per_token": 3.554414156603282,
+    "scored_tokens": 3009643,
+    "scored_bytes": 9843359,
+    "eot_targets_excluded": 1941,
+    "bytes_per_token": 3.270606846061144,
+    "windows": 5882,
+    "context": 512,
+    "docs_kept": 1942,
+    "docs_removed": 24
+   }
+  },
+  "wikipedia": {
+   "full": {
+    "bpb": 1.4707959015141283,
+    "loss_per_token": 3.0209277675752904,
+    "scored_tokens": 3374827,
+    "scored_bytes": 10000322,
+    "eot_targets_excluded": 3349,
+    "bytes_per_token": 2.963210262333447,
+    "windows": 6598,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null,
+   "excluded": {
+    "bpb": 1.4715995775729402,
+    "loss_per_token": 3.020771798731004,
+    "scored_tokens": 3356403,
+    "scored_bytes": 9939783,
+    "eot_targets_excluded": 3341,
+    "bytes_per_token": 2.961439076296857,
+    "windows": 6562,
+    "context": 512,
+    "docs_kept": 3342,
+    "docs_removed": 8
+   }
+  }
+ },
+ "entry": {
+  "sets": [
+   "fineweb_edu",
+   "fineweb",
+   "dclm",
+   "wikipedia"
+  ],
+  "sliding": 128,
+  "tier": "core",
+  "workspace": "giraffes573",
+  "group": "Phase 5: vocab 4k"
+ },
+ "frozen_sha256": "2f418d33c2d5c41710f0a84193b7c5c106ab1ef5e2b031457b33568634769903",
+ "excluded_docs": {
+  "fineweb_edu": 67,
+  "fineweb": 38,
+  "dclm": 24,
+  "wikipedia": 8
+ },
+ "gpu_name": "NVIDIA L4",
+ "frozen_commit": "3ba1d903b00f327f981f00f8e36bb1cf6b43ba54",
+ "seconds": 172.7,
+ "scored_at_utc": "2026-11-06T10:18:57+00:00"
+}
