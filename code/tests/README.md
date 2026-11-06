@@ -9,11 +9,11 @@ Run from the repo root (needs `pip install torch numpy pyyaml`):
 python code/tests/test_pipeline.py
 ```
 
-Expected last line: `20/20 passed`. Run it after any change to `code/` and before committing.
+Expected last line: `22/22 passed`. Run it after any change to `code/` and before committing.
 
 | File | What it does |
 |---|---|
-| `test_pipeline.py` | The 20 tests below. Each one is a row of the correctness checklist in the Phase 0 records |
+| `test_pipeline.py` | The 22 tests below. Each one is a row of the correctness checklist in the Phase 0 records |
 
 | Test | What it proves |
 |---|---|
@@ -34,6 +34,8 @@ Expected last line: `20/20 passed`. Run it after any change to `code/` and befor
 | 13-gram contamination check (E03 R3) | `contamination.py` finds shared 13-grams exactly like a brute-force lookup, also across chunk boundaries; union over training corpora (D25) |
 | vocabulary variant data (E07) | `data_variant` reads only `<data>/vocab/v<V>/`, refuses a mismatched/unsupported variant, never falls back to the baseline files, cuts the curve subset to the baseline's text, hashes the variant files; rescore uses the variant; baseline results get no new fields (D36) |
 | sliding-window BPB (E07) | The overlapping-window diagnostic equals the declared BPB exactly at stride = context and scores every target once (D36) |
+| combined recipe (E08) | Muon + a vocabulary variant + a different shape, never run together before, train through the same code: Muon gets 4 x n_layer matrices, the variant's files are used and hashed, the model learns, a preemption resumes exactly, rescore reads the variant; the AdamW-part LR is a separate knob (D42) |
+| test lock (D42) | `evaluate_test.py` refuses a draft list and unlisted runs; scores the TEST split (not val) of the model's own vocabulary; removes the listed contaminated test documents; adds the overlapping-window score; text samples decode with the real tokenizer; every run in the real `configs/frozen_configs.yaml` has a result file recorded on the listed workspace |
 | rescore reproduces stored BPB | `rescore.py` re-scores a saved model to exactly its stored BPB, and leaving documents out equals scoring a hand-rebuilt file (D25) |
 | all config files load | Every YAML file in `configs/` loads with the right types (a YAML quirk crashed the first benchmarks) |
 | no pretrained-weights code path | `model.py` cannot load GPT-2 weights |

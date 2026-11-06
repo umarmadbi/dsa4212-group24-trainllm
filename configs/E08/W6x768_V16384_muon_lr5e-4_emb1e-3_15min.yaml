@@ -1,0 +1,28 @@
+# E08 (D42) R1e DIAGNOSTIC (never changes the recipe): RA at muon_lr 5e-4 with the AdamW part
+# (16k x 768 tied embedding, position embedding, LayerNorm) at lr 1e-3 instead of 2e-3. 15 min, seed 0.
+# Question: is the recipe's embedding LR (inherited from AdamW tuning, never tuned under Muon; D36 gap 4) leaving gain?
+run_id: E08-W6x768_V16384_muon_lr5e-4_emb1e-3_15min
+experiment: E08
+corpus: fineweb_edu
+data_variant: v16384
+optimizer: muon
+muon_lr: 5.0e-04               # Muon LR (hidden block matrices); the value tuned by R1
+n_layer: 6
+n_head: 12
+n_embd: 768
+block_size: 512
+vocab_size: 16384
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 1.0e-03                   # AdamW part (tied embedding/output, position embedding, LayerNorm); R1e diagnostic value
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 900
+eval_every_frac: 0.05
+ckpt_every_s: 300
+compile: true
+dtype: bfloat16

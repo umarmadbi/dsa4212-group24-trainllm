@@ -1345,6 +1345,9 @@ def main_e07():
     print(f"  {'vocab':>6} {'val B/tok':>9} {'train B/tok':>11} {'total':>7} {'embed':>6} {'non-emb':>7} "
           f"{'FLOPs/tok':>9} {'tok/s':>7} {'bytes/s':>8} {'vs 8k':>7} {'MFU':>5}")
     table = {}
+    # D37 display bug (fixed D42): the 8k reference used to be read from `table` while the loop was still at 4k
+    # (the first row), so 4k printed "+0.0 %". The reference is now computed before the loop.
+    ref_bps = ref_tps * _bpt(BASE_VOCAB, "train") if ref_tps and _bpt(BASE_VOCAB, "train") else None
     for v in sorted([BASE_VOCAB] + list(E07_VOCABS)):
         ps = ad_p if v == BASE_VOCAB else [r for r in _e07_rows(pil, v)]
         any_r = (base or ad_p)[0] if v == BASE_VOCAB else next(iter(_e07_rows(runs, v)), None)
@@ -1352,7 +1355,6 @@ def main_e07():
         bpt_tr = _bpt(v, "train")
         bps = tps * bpt_tr if tps and bpt_tr else None
         table[v] = dict(tps=tps, bps=bps)
-        ref_bps = table.get(BASE_VOCAB, {}).get("bps")
         if any_r:
             p, fpt, star = any_r["params"], any_r["flops_per_token"], " "
         elif base:                               # not run yet: computed (tied embedding V x d, same blocks)
@@ -1488,10 +1490,285 @@ def main_e07():
             print("  waiting for the 8k models' sliding rescore (E02-N49 s0-2, jinkyungjeon)")
 
 
+# ---------------------------------------------------------------------------
+# E08 (Phase 6): the combined recipe, 60 min. Rules D42 (docs/experiments/E08_final_recipe.md).
+E08_RECIPES = {
+    "RA": dict(name="W6x768_V16384_muon", shape="6x768", label="RA (Muon + 6x768 + 16k)"),
+    "RB": dict(name="N49_V16384_muon", shape="11x576", label="RB (Muon + 11x576 + 16k)"),
+}
+E08_GRID = [1e-3, 2e-3, 4e-3, 8e-3]      # muon_lr grid, as E05
+E08_V = 16384
+E05_FINAL = [f"E05-N49_muon_lr2e-3_60min__s{i}" for i in (0, 1, 2)]       # Muon alone (D34)
+E06_WIDE = ["E06-W6x768_lr2e-3_60min__s0"]                               # 6x768 alone (D34; 1 seed)
+E07_16K = [f"E07-V16384_lr2e-3_60min__s{i}" for i in (0, 1, 2)]           # 16k alone (D40)
+SIGMA60 = SIGMA_FWE
+
+
+def _shape(r):
+    return f"{r['config']['n_layer']}x{r['config']['n_embd']}"
+
+
+def _cmp3(a_vals, b_vals, label_a, label_b):
+    """Difference of means with the declared noise rule: real if |diff| > 2 sigma60 sqrt(1/na + 1/nb)
+    (= 1.6 sigma60 for 3 vs 3; 2 sigma60 sqrt(4/3) for 1 vs 3). Also a Welch-type view from the arms' own sds
+    (sensitivity only: Muon runs vary much less than AdamW runs, D34)."""
+    na, nb = len(a_vals), len(b_vals)
+    d = statistics.mean(a_vals) - statistics.mean(b_vals)
+    # 3 vs 3: the declared rounded 1.6 sigma60 (0.0091), exactly as E05-E07; otherwise 2 SE of the difference
+    thr = 1.6 * SIGMA60 if na == nb == 3 else 2 * SIGMA60 * math.sqrt(1 / na + 1 / nb)
+    verdict = "BETTER" if d < -thr else "WORSE" if d > thr else "inconclusive"
+    own = ""
+    if na >= 2 and nb >= 2:
+        se = math.sqrt(statistics.variance(a_vals) / na + statistics.variance(b_vals) / nb)
+        own = f"; with the arms' own sds 2 SE = {2 * se:.4f}"
+    print(f"  {label_a} {statistics.mean(a_vals):.4f} ({na}) vs {label_b} {statistics.mean(b_vals):.4f} ({nb}): "
+          f"{d:+.4f}; declared threshold {thr:.4f} -> {label_a} {verdict}{own}")
+    return verdict, d
+
+
+def _e08_launch_hint(note, s0, name):
+    if note.startswith("waiting"):
+        miss = [g for g in E08_GRID if g not in s0]
+        print("  LAUNCH (15 min, seed 0): " + ",".join(f"configs/E08/{name}_lr{lr_tag(g)}_15min.yaml" for g in miss))
+    elif note.startswith("EDGE"):
+        m = re.search(r"run (\S+) \(edge rule\)", note)
+        if m:
+            print(f"  LAUNCH (15 min, seed 0): configs/E08/{name}_lr{m.group(1)}_15min.yaml")
+    elif note.startswith("CLOSE CALL"):
+        a, b = sorted(s0, key=s0.get)[:2]
+        print(f"  LAUNCH (15 min, seeds 1,2): configs/E08/{name}_lr{lr_tag(a)}_15min.yaml, "
+              f"configs/E08/{name}_lr{lr_tag(b)}_15min.yaml")
+
+
+def _sliding_of(rid):
+    f = Path("results/rescore") / f"{rid}__slide128.json"
+    if not f.exists():
+        return None
+    e = json.loads(f.read_text())["sets"].get("fineweb_edu") or {}
+    return (e.get("full") or {}).get("bpb"), (e.get("sliding") or {}).get("bpb")
+
+
+def main_e08():
+    runs = load("E08")
+    pil = [r for r in runs if r["budget_s"] == 900]
+    fin = [r for r in runs if r["budget_s"] == FINAL_S]
+    mlr = lambda r: r["config"]["muon_lr"]
+    emb = lambda r: r["config"]["lr"]
+    print("E08 (Phase 6): combined recipe vs the declared baseline, 60 min. Rules D42.")
+    print("  Decisions: final FineWeb-Edu validation BPB, 3 seeds per arm; everything marked D<n> is reported, never decisive.")
+    base = _load_ids(BASE_RUNS)
+    ad = {k: _load_ids(ids) for k, ids in AD_PILOTS.items()}
+    ad_p = [r for v in ad.values() for r in v]
+    m_p = [r for r in load("E05") if r["budget_s"] == 900 and r["config"].get("optimizer") == "muon"]
+    v_p = [r for r in load("E07") if r["budget_s"] == 900 and r["config"].get("vocab_size") == E08_V]
+    w_p = [r for r in load("E06") if r["budget_s"] == 900 and _shape(r) == "6x768"]
+    med = lambda rs: statistics.median(r["steady_tokens_per_s"] for r in rs if r.get("steady_tokens_per_s")) if rs else None
+    bpt16, bpt8 = _bpt(E08_V, "train"), _bpt(BASE_VOCAB, "train")
+    ref = med(ad_p)
+    print(f"  reference speeds (15-min pilots, steady tok/s): AdamW 11x576 8k {ref or 0:.0f}; Muon 8k {med(m_p) or 0:.0f}; "
+          f"AdamW 16k {med(v_p) or 0:.0f}; AdamW 6x768 8k {med(w_p) or 0:.0f}")
+    out = {}
+    for key, R in E08_RECIPES.items():
+        ps = [r for r in pil if r["run_id"].startswith(f"E08-{R['name']}_") and emb(r) == 2e-3]
+        pe = [r for r in pil if r["run_id"].startswith(f"E08-{R['name']}_") and emb(r) != 2e-3]
+        print(f"\n{R['label']} pilots (15 min; AdamW part at 2e-3):")
+        for r in sorted(ps, key=lambda r: (mlr(r), r["seed"])):
+            dcx = _data_check(r)
+            print(f"  muon_lr {lr_tag(mlr(r))} s{r['seed']}: {fmt_bpb(r)}  {r.get('steady_tokens_per_s') or 0:.0f} tok/s, "
+                  f"MFU {r.get('mfu_steady') or 0:.3f}, clipped {r.get('frac_steps_clipped') or 0:.1%}, "
+                  f"params {r['params']['total'] / 1e6:.1f}M (embed {r['params']['token_embedding'] / 1e6:.1f}M)"
+                  + (f"  !! {'; '.join(dcx)}" if dcx else ""))
+        bad = [r for r in ps if _data_check(r)]
+        if bad:
+            print(f"  EXCLUDED (wrong data on that workspace): {[r['run_id'] for r in bad]}")
+            ps = [r for r in ps if not _data_check(r)]
+        sp = med(ps)
+        if sp and ref and bpt16 and bpt8:
+            print(f"  D2 speed: tokens/s {sp / ref - 1:+.1%} vs baseline (text/s {sp * bpt16 / (ref * bpt8) - 1:+.1%}); "
+                  f"vs Muon 8k {sp / med(m_p) - 1:+.1%}, vs AdamW 16k {sp / med(v_p) - 1:+.1%}"
+                  + (f", vs AdamW 6x768 8k {sp / med(w_p) - 1:+.1%}" if w_p else ""))
+        pick, _, note, s0 = _pick_lr(ps, mlr, E08_GRID)
+        _lr_curve(s0, R["label"])
+        print(f"R1 {key} muon_lr pick: {lr_tag(pick) if pick else None} ({note})")
+        if pick is None:
+            _e08_launch_hint(note, s0, R["name"])
+            continue
+        at_pick = [r for r in ps if mlr(r) == pick and r["seed"] in (0, 1, 2)]
+        _fifteen_vs_adamw(at_pick, key)
+        if key == "RA":     # R1e: embedding/LayerNorm (AdamW part) LR check, diagnostic only
+            pe_p = {emb(r): bpb_key(r) for r in pe if mlr(r) == pick and r["seed"] == 0}
+            ref15 = statistics.mean(bpb_key(r) for r in at_pick)
+            todo = [x for x in (1e-3, 4e-3) if x not in pe_p]
+            if todo:
+                print("  R1e (diagnostic) LAUNCH (15 min, seed 0): " + ", ".join(
+                    f"configs/E08/{R['name']}_lr{lr_tag(pick)}_emb{lr_tag(x)}_15min.yaml" for x in todo))
+            if pe_p:
+                best_e = min(pe_p, key=pe_p.get)
+                gap = pe_p[best_e] - ref15
+                print(f"  R1e embedding LR (AdamW part) at muon_lr {lr_tag(pick)}: "
+                      + ", ".join(f"{lr_tag(k)} {v:.4f}" for k, v in sorted(pe_p.items()))
+                      + f" vs 2e-3 {ref15:.4f} ({len(at_pick)} seed(s)): best other {gap:+.4f} -> "
+                      + ("UNDER-TUNED: the recipe's results are a lower bound on its gain (reported; recipe unchanged)"
+                         if gap < -2.8 * SIGMA15 else "2e-3 within noise of the best tried (2.8 sigma15)"))
+        rs = [r for r in fin if r["run_id"].startswith(f"E08-{R['name']}_lr{lr_tag(pick)}_")]
+        other = [r["run_id"] for r in fin if r["run_id"].startswith(f"E08-{R['name']}_") and r not in rs]
+        if other:
+            print(f"  NOTE: 60-min {key} runs at a non-picked LR exist: {other} (not used)")
+        need = [s for s in (0, 1, 2) if s not in {r["seed"] for r in rs}]
+        if need:
+            print(f"  LAUNCH (60 min): configs/E08/{R['name']}_lr{lr_tag(pick)}_60min.yaml seeds "
+                  + ",".join(map(str, need)))
+        if not rs:
+            continue
+        print(f"R0/R3 checks {key}:")
+        blocked = _slow_checks(rs, ps, key)
+        for r in rs:
+            dcx = _data_check(r)
+            if dcx:
+                print(f"  {r['run_id']}: {'; '.join(dcx)} -> EXCLUDED")
+                blocked.add(r["run_id"])
+        rs = [r for r in rs if r["run_id"] not in blocked and r["seed"] in (0, 1, 2)]
+        for r in sorted(rs, key=lambda r: r["seed"]):
+            print(f"  {key} s{r['seed']}: {fmt_bpb(r)}  {r['tokens_processed'] / 1e6:.0f}M tokens, {r['steps']} steps, "
+                  f"{r.get('steady_tokens_per_s') or 0:.0f} tok/s, AVG4 {_avg4(r):.4f}")
+        if len(rs) < 3:
+            print(f"  {len(rs)} of 3 seeds usable: decisions wait (D42 R2 needs 3 seeds per recipe)")
+            out[key] = dict(rows=rs, pick=pick, pilots=ps, complete=False)
+            continue
+        out[key] = dict(rows=rs, pick=pick, pilots=ps, complete=True)
+        vals = [bpb_key(r) for r in rs]
+        print(f"R2 {key} decisions (3 vs 3; real if |diff| > 1.6 sigma60 = {1.6 * SIGMA60:.4f}):")
+        _cmp3(vals, [bpb_key(r) for r in base], key, "baseline E02-N49")
+        mu = _load_ids(E05_FINAL)
+        if len(mu) == 3:
+            _cmp3(vals, [bpb_key(r) for r in mu], key, "Muon alone (E05)")
+        _diagnostics(rs, base, ps, ad_p, key, equal_steps=False)
+        _e07_bytes_view(rs, base, E08_V, key)
+        sl = [x for x in (_sliding_of(r["run_id"]) for r in rs) if x and x[1] is not None]
+        bsl = [x for x in (_sliding_of(r["run_id"]) for r in base) if x and x[1] is not None]
+        if sl and bsl:
+            print(f"  D8 overlapping windows (stride 128, {len(sl)} model(s)): {key} - baseline declared "
+                  f"{statistics.mean(a for a, _ in sl) - statistics.mean(a for a, _ in bsl):+.4f}, sliding "
+                  f"{statistics.mean(b for _, b in sl) - statistics.mean(b for _, b in bsl):+.4f}")
+        elif fin:
+            print(f"  D8 overlapping-window rescore of {key}: not yet run (modal_app.py::rescore --sets fineweb_edu --stride 128)")
+        print(f"  D9 memory: peak GPU {max(r.get('peak_memory_gb') or 0 for r in rs):.1f} GB, host RSS "
+              f"{max(((r.get('peak_host_rss_gb') or {}).get('self') or 0) for r in rs):.1f} GB")
+    # ---- R3: which recipe is the final one (RA vs RB) ----
+    ra, rb = out.get("RA"), out.get("RB")
+    if not (ra and ra["complete"]):
+        return
+    print("\nR3 final recipe (RA vs RB, 3 vs 3):")
+    if rb and rb["complete"]:
+        verdict, d = _cmp3([bpb_key(r) for r in ra["rows"]], [bpb_key(r) for r in rb["rows"]], "RA", "RB")
+        final = "RA" if verdict == "BETTER" else "RB"
+        why = ("RA lower beyond noise" if verdict == "BETTER" else "RB lower beyond noise" if verdict == "WORSE"
+               else "not separated -> RB by the declared tie-break (fewer changes; gain not tied to L4-specific speed)")
+    else:
+        final, why = "RA", "RB has fewer than 3 usable seeds (declared fallback: the final recipe needs 3 seeds)"
+    print(f"  -> FINAL RECIPE = {final} ({E08_RECIPES[final]['label']}): {why}")
+    # ---- D-attribution: partial factorial with the single-change runs (descriptive, with SEs) ----
+    cells = {"B": [bpb_key(r) for r in base], "M": [bpb_key(r) for r in _load_ids(E05_FINAL)],
+             "W": [bpb_key(r) for r in _load_ids(E06_WIDE)], "V": [bpb_key(r) for r in _load_ids(E07_16K)],
+             "MWV": [bpb_key(r) for r in ra["rows"]]}
+    if rb and rb["rows"]:
+        cells["MV"] = [bpb_key(r) for r in rb["rows"]]
+    if any(not v for v in cells.values()):
+        return
+    mean = {k: statistics.mean(v) for k, v in cells.items()}
+    n = {k: len(v) for k, v in cells.items()}
+
+    def lin(coefs, label):
+        est = sum(c * mean[k] for k, c in coefs.items())
+        se = SIGMA60 * math.sqrt(sum(c * c / n[k] for k, c in coefs.items()))
+        tag = "within 2 SE" if abs(est) <= 2 * se else ("beyond 2 SE")
+        print(f"  {label:58s} {est:+.4f}  (2 SE {2 * se:.4f}; {tag})")
+    print("\nD-attribution (FineWeb-Edu val; B = baseline, M = Muon, W = 6x768, V = 16k; seeds: "
+          + ", ".join(f"{k} {n[k]}" for k in cells) + "):")
+    lin({"M": 1, "B": -1}, "Muon alone            (M - B)")
+    lin({"W": 1, "B": -1}, "6x768 alone           (W - B)")
+    lin({"V": 1, "B": -1}, "16k alone             (V - B)")
+    if "MV" in cells:
+        lin({"MV": 1, "M": -1}, "16k given Muon        (MV - M)")
+        lin({"MV": 1, "V": -1}, "Muon given 16k        (MV - V)")
+        lin({"MWV": 1, "MV": -1}, "6x768 given Muon+16k  (MWV - MV)")
+        lin({"MV": 1, "M": -1, "V": -1, "B": 1}, "interaction Muon x 16k (MV - M - V + B; 0 = additive)")
+    lin({"MWV": 1, "M": -1, "W": -1, "V": -1, "B": 2}, "non-additivity of all three (MWV - M - W - V + 2B)")
+    print("  (negative = the combination does better than the sum of the single gains; W has 1 seed, so terms with W are wide)")
+    print("\nTo freeze (D42): add the final runs of BOTH recipes to configs/frozen_configs.yaml under core "
+          "(s0 with samples: true), set status: frozen, commit, then test_eval per workspace.")
+
+
+def main_test():
+    """One-time test scores (results/test/*.json, D42). Reported, never used for any decision."""
+    files = sorted(Path("results/test").glob("*.json")) if Path("results/test").exists() else []
+    if not files:
+        print("No test results yet (results/test/). The test lock: configs/frozen_configs.yaml, D42.")
+        return
+    T = {json.loads(f.read_text())["run_id"]: json.loads(f.read_text()) for f in files}
+    print(f"TEST SET (scored once, frozen list sha {next(iter(T.values())).get('frozen_sha256', '?')[:12]}); "
+          "val = final validation BPB of the same model")
+    print(f"  {'run':46s} {'val FWE':>8} {'test FWE':>9} {'w/o cont.':>9} {'sliding':>8} {'AVG4 val':>9} {'AVG4 test':>9}")
+    groups = defaultdict(list)
+    pairs = []
+    for rid, t in sorted(T.items()):
+        src = _load_ids([rid])
+        r = src[0] if src else {}
+        s = t["sets"]
+        fwe = s.get("fineweb_edu", {})
+        tv = fwe.get("full", {}).get("bpb")
+        vv = bpb_key(r) if r else None
+        a4t = statistics.mean(s[c]["full"]["bpb"] for c in VAL_SETS) if all(c in s for c in VAL_SETS) else None
+        a4v = _avg4(r) if r else None
+        print(f"  {rid:46s} {vv or 0:>8.4f} {tv or 0:>9.4f} {fwe.get('excluded', {}).get('bpb', float('nan')):>9.4f} "
+              f"{fwe.get('sliding', {}).get('bpb', float('nan')):>8.4f} "
+              f"{a4v if a4v and a4v < math.inf else float('nan'):>9.4f} {a4t if a4t else float('nan'):>9.4f}")
+        groups[t["entry"].get("group") or rid.split("__")[0]].append((vv, tv, a4v, a4t))
+        if vv and tv and vv < math.inf:
+            pairs.append((vv, tv))
+    print("\nGroups (mean +- sd over seeds; test - val offset):")
+    for g, xs in groups.items():
+        tv = [x[1] for x in xs]
+        vv = [x[0] for x in xs]
+        sd = f" +- {statistics.stdev(tv):.4f}" if len(tv) > 1 else ""
+        print(f"  {g:52s} n={len(xs)}  test FWE {statistics.mean(tv):.4f}{sd}  (val {statistics.mean(vv):.4f}; "
+              f"offset {statistics.mean(tv) - statistics.mean(vv):+.4f})")
+    base = [T[r]["sets"]["fineweb_edu"]["full"]["bpb"] for r in BASE_RUNS if r in T]
+    if len(base) == 3:
+        print("\nHeadline (FineWeb-Edu TEST, 3 vs 3; reported with the declared noise scale, decisions were made on val):")
+        for key, R in E08_RECIPES.items():
+            ids = [r for r in T if r.startswith(f"E08-{R['name']}_lr") and "_60min__" in r]
+            if len(ids) == 3:
+                _cmp3([T[r]["sets"]["fineweb_edu"]["full"]["bpb"] for r in ids], base, key, "baseline (test)")
+                ex = [T[r]["sets"]["fineweb_edu"].get("excluded", {}).get("bpb") for r in ids]
+                bx = [T[r]["sets"]["fineweb_edu"].get("excluded", {}).get("bpb") for r in BASE_RUNS]
+                if all(ex) and all(bx):
+                    print(f"      without contaminated test documents: {statistics.mean(ex) - statistics.mean(bx):+.4f}")
+                sl = [T[r]["sets"]["fineweb_edu"].get("sliding", {}).get("bpb") for r in ids]
+                bs = [T[r]["sets"]["fineweb_edu"].get("sliding", {}).get("bpb") for r in BASE_RUNS]
+                if all(sl) and all(bs):
+                    print(f"      overlapping windows (stride 128; D8 caveat): {statistics.mean(sl) - statistics.mean(bs):+.4f}")
+    if len(pairs) >= 5:     # val-test agreement: Spearman rank correlation (no scipy needed)
+        def ranks(x):
+            o = sorted(range(len(x)), key=lambda i: x[i]); rk = [0] * len(x)
+            for i, j in enumerate(o):
+                rk[j] = i
+            return rk
+        rv, rt = ranks([p[0] for p in pairs]), ranks([p[1] for p in pairs])
+        k = len(pairs)
+        rho = 1 - 6 * sum((a - b) ** 2 for a, b in zip(rv, rt)) / (k * (k * k - 1))
+        print(f"\nval-test agreement over {k} models: Spearman rho = {rho:.3f}; mean offset test - val "
+              f"{statistics.mean(t - v for v, t in pairs):+.4f}")
+    for rid, t in T.items():
+        for smp in t.get("samples") or []:
+            print(f"\nSAMPLE {rid} | {smp['prompt']!r}:\n  {smp['text']!r}")
+
+
 if __name__ == "__main__":
     exp = sys.argv[1] if len(sys.argv) > 1 else "E01"
-    if exp in ("E02", "E03", "E04", "E05", "E06", "E07"):
-        {"E02": main_e02, "E03": main_e03, "E04": main_e04, "E05": main_e05, "E06": main_e06, "E07": main_e07}[exp]()
+    if exp in ("E02", "E03", "E04", "E05", "E06", "E07", "E08", "TEST"):
+        {"E02": main_e02, "E03": main_e03, "E04": main_e04, "E05": main_e05, "E06": main_e06, "E07": main_e07,
+         "E08": main_e08, "TEST": main_test}[exp]()
         sys.exit(0)
     main(exp)
     if exp == "E01":

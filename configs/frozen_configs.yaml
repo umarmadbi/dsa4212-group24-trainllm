@@ -1,0 +1,71 @@
+# TEST-SET LOCK (DECLARATIONS section 5; decision D42). `code/evaluate_test.py` scores a run on the test split
+# only if it is listed here AND `status` is `frozen`; `modal_app.py::test_eval` also requires this file and all
+# code to be committed, and scores each run once. Git history of this file = proof the test set was not used for
+# any decision: it is set to `frozen` only after the last E08 (Phase 6) decision, committed, and only then scored.
+#
+# Tiers (defaults in evaluate_test.TIER_DEFAULTS):
+#   core  - four test sets + the same without contaminated documents + overlapping windows (stride 128) on FineWeb-Edu
+#   data  - four test sets + without contaminated documents (E03 corpora; AVG4 is that comparison's declared metric)
+#   extra - FineWeb-Edu test (+ without contaminated documents) only; lowest priority, scored if credits allow
+# workspace = the Modal workspace whose runs Volume holds the run's final_model.pt (from the compute ledger).
+# samples: true = also 3 text samples from fixed prompts (illustration only).
+#
+# TO FREEZE (after every E08 decision; D42): add the E08 finals (both recipes, seeds 0-2, at their picked LR) under
+# `core`, set status: frozen, commit, then run test_eval once per workspace. Nothing in this file is edited after.
+status: draft
+runs:
+  # ---- core ----
+  E02-N49__s0: {tier: core, workspace: jinkyungjeon, group: "baseline (declared recipe: AdamW 11x576, 8k vocab)", samples: true}
+  E02-N49__s1: {tier: core, workspace: jinkyungjeon, group: "baseline (declared recipe: AdamW 11x576, 8k vocab)"}
+  E02-N49__s2: {tier: core, workspace: jinkyungjeon, group: "baseline (declared recipe: AdamW 11x576, 8k vocab)"}
+  E05-N49_muon_lr2e-3_60min__s0: {tier: core, workspace: giraffes573, group: "Phase 4 winner: Muon"}
+  E05-N49_muon_lr2e-3_60min__s1: {tier: core, workspace: giraffes573, group: "Phase 4 winner: Muon"}
+  E05-N49_muon_lr2e-3_60min__s2: {tier: core, workspace: giraffes573, group: "Phase 4 winner: Muon"}
+  E06-W6x768_lr2e-3_60min__s0: {tier: core, workspace: jinkyungjeon, group: "Phase 4: shape 6x768"}
+  E06-D19x448_lr2e-3_60min__s0: {tier: core, workspace: jinkyungjeon, group: "Phase 4: shape 19x448"}
+  E07-V16384_lr2e-3_60min__s0: {tier: core, workspace: giraffes573, group: "Phase 5: vocab 16k"}
+  E07-V16384_lr2e-3_60min__s1: {tier: core, workspace: joshuahanrc, group: "Phase 5: vocab 16k"}
+  E07-V16384_lr2e-3_60min__s2: {tier: core, workspace: joshuahanrc, group: "Phase 5: vocab 16k"}
+  E07-V32768_lr2e-3_60min__s0: {tier: core, workspace: giraffes573, group: "Phase 5: vocab 32k"}
+  E07-V4096_lr2e-3_60min__s0: {tier: core, workspace: giraffes573, group: "Phase 5: vocab 4k"}
+  # ---- E08 finals: added at freeze time (both recipes, seeds 0-2; recipe s0 with samples: true) ----
+  # ---- data (E03; the FineWeb-Edu arm is E02-N49 above) ----
+  E03-N49_dclm__s0: {tier: data, workspace: jinkyungjeon, group: "Phase 3 data quality"}
+  E03-N49_dclm__s1: {tier: data, workspace: jinkyungjeon, group: "Phase 3 data quality"}
+  E03-N49_dclm__s2: {tier: data, workspace: giraffes573, group: "Phase 3 data quality"}
+  E03-N49_fineweb__s0: {tier: data, workspace: giraffes573, group: "Phase 3 data quality"}
+  E03-N49_fineweb__s1: {tier: data, workspace: giraffes573, group: "Phase 3 data quality"}
+  E03-N49_fineweb__s2: {tier: data, workspace: jinkyungjeon, group: "Phase 3 data quality"}
+  E03-N49_mix_fwe60_dclm40__s0: {tier: data, workspace: giraffes573, group: "Phase 3 data quality"}
+  E03-N49_mix_fwe60_dclm40__s1: {tier: data, workspace: giraffes573, group: "Phase 3 data quality"}
+  E03-N49_mix_fwe60_dclm40__s2: {tier: data, workspace: jinkyungjeon, group: "Phase 3 data quality"}
+  # ---- extra (lowest priority) ----
+  E01-N26_lr4e-3_60min__s0: {tier: extra, workspace: umarmadbi, group: "E02 N26 seed 0 (the reused E01 horizon run)"}
+  E02-N7__s0: {tier: extra, workspace: umarmadbi, group: "Phase 2 size"}
+  E02-N11__s0: {tier: extra, workspace: joshuahanrc, group: "Phase 2 size"}
+  E02-N17__s0: {tier: extra, workspace: joshuahanrc, group: "Phase 2 size"}
+  E02-N26__s1: {tier: extra, workspace: umarmadbi, group: "Phase 2 size"}
+  E02-N26__s2: {tier: extra, workspace: umarmadbi, group: "Phase 2 size"}
+  E02-N26__s3: {tier: extra, workspace: joshuahanrc, group: "Phase 2 size"}
+  E02-N26__s4: {tier: extra, workspace: joshuahanrc, group: "Phase 2 size"}
+  E02-N36__s0: {tier: extra, workspace: joshuahanrc, group: "Phase 2 size"}
+  E02-N36__s1: {tier: extra, workspace: joshuahanrc, group: "Phase 2 size"}
+  E02-N36__s2: {tier: extra, workspace: joshuahanrc, group: "Phase 2 size"}
+  E02-N65__s0: {tier: extra, workspace: umarmadbi, group: "Phase 2 size"}
+  E02-N65__s1: {tier: extra, workspace: joshuahanrc, group: "Phase 2 size"}
+  E02-N65__s2: {tier: extra, workspace: joshuahanrc, group: "Phase 2 size"}
+  E04-N49_rep2__s0: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep2__s1: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep2__s2: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep4__s0: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep4__s1: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep4__s2: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep8__s0: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep8__s1: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep8__s2: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep16__s0: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep32__s0: {tier: extra, workspace: joshuahanrc, group: "Phase 3 repetition"}
+  E04-N49_rep8_shift__s0: {tier: extra, workspace: jinkyungjeon, group: "Phase 3 repetition"}
+  E04-N65_U36M__s0: {tier: extra, workspace: jinkyungjeon, group: "Phase 3 repetition"}
+  E04-N17_U36M__s0: {tier: extra, workspace: giraffes573, group: "Phase 3 repetition"}
+  E04-N26_U36M__s0: {tier: extra, workspace: giraffes573, group: "Phase 3 repetition"}

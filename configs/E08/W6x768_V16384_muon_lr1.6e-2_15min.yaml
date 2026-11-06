@@ -1,0 +1,28 @@
+# E08 (D42) learning-rate pilot, RA (full recipe: Muon + 6x768 + 16k). Preliminary work.
+# Declared protocol as E05: muon_lr 1e-3..8e-3 x 15 min (2.5e-4, 5e-4, 1.6e-2, 3.2e-2 only if the edge rule asks),
+# close call -> seeds 1, 2 of both. AdamW part (embedding + LayerNorm) at 2e-3. Rules: docs/experiments/E08_final_recipe.md.
+run_id: E08-W6x768_V16384_muon_lr1.6e-2_15min
+experiment: E08
+corpus: fineweb_edu
+data_variant: v16384
+optimizer: muon
+muon_lr: 1.6e-02               # Muon LR (hidden block matrices); the value tuned by R1
+n_layer: 6
+n_head: 12
+n_embd: 768
+block_size: 512
+vocab_size: 16384
+micro_batch: 32
+grad_accum: 2               # 32,768 tokens per step (DECLARATIONS Amendments 2026-11-01)
+lr: 2.0e-03                   # AdamW part (tied embedding/output, position embedding, LayerNorm); 2e-3 as E05
+min_lr_ratio: 0.1
+warmup_steps: 200
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+budget_s: 900
+eval_every_frac: 0.05
+ckpt_every_s: 300
+compile: true
+dtype: bfloat16

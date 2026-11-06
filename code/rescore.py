@@ -61,28 +61,38 @@ def load_model(path: Path, device: str):
     return m.to(device).eval(), c, ck.get("seed")
 
 
+def data_dir_for(c: dict, data_dir) -> Path:
+    """The data a model must be scored on: its vocabulary variant's files if it was trained on one (D36)."""
+    data_dir = Path(data_dir)
+    return data_dir / "vocab" / c["data_variant"] if c.get("data_variant") else data_dir
+
+
 def rescore(run_dir: str, data_dir: str, sets, exclude: dict | None = None, device: str | None = None,
-            stride: int = 0) -> dict:
+            stride: int = 0, split: str = "val") -> dict:
     """`stride` > 0 (E07 diagnostic, D36): also score with overlapping windows (bpb.evaluate_bpb_sliding).
-    A model trained on a vocabulary variant (config data_variant) is scored on that variant's files."""
+    A model trained on a vocabulary variant (config data_variant) is scored on that variant's files.
+    `split` (D42): "val" (default; everything as before) or "test". Test scoring is only ever called through
+    code/evaluate_test.py, which enforces the test lock (DECLARATIONS sec. 5); with "test" there is no stored
+    score to compare with (training never touches the test split)."""
+    if split not in ("val", "test"):
+        raise ValueError(f"split must be 'val' or 'test', got {split!r}")
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     run_dir, data_dir = Path(run_dir), Path(data_dir)
     model, c, seed = load_model(run_dir / "final_model.pt", device)
-    if c.get("data_variant"):
-        data_dir = data_dir / "vocab" / c["data_variant"]
+    data_dir = data_dir_for(c, data_dir)
     ctx = (torch.autocast(device_type="cuda", dtype=torch.bfloat16)
            if device == "cuda" and c.get("dtype") == "bfloat16" else contextlib.nullcontext())
     meta = json.loads((data_dir / "tokenizer" / "meta.json").read_text())
     tb = np.load(data_dir / "tokenizer" / "token_bytes.npy")
     stored = {}
     rj = run_dir / "result.json"
-    if rj.exists():
+    if rj.exists() and split == "val":
         stored = {k: v.get("bpb") for k, v in (json.loads(rj.read_text()).get("final_val") or {}).items()}
     if meta["vocab_size"] != c["vocab_size"]:
         raise ValueError(f"tokenizer vocab {meta['vocab_size']} != model vocab {c['vocab_size']}")
-    out = dict(run_id=run_dir.name, seed=seed, device=device, data_dir=str(data_dir), sets={})
+    out = dict(run_id=run_dir.name, seed=seed, device=device, data_dir=str(data_dir), split=split, sets={})
     for s in sets:
-        toks = np.fromfile(data_dir / "tokens" / s / "val.bin", dtype=np.uint16)
+        toks = np.fromfile(data_dir / "tokens" / s / f"{split}.bin", dtype=np.uint16)
         full = evaluate_bpb(model, toks, tb, c["block_size"], c.get("eval_batch", 32), meta["eot_id"], device, ctx)
         e = dict(full=full, stored_bpb=stored.get(s),
                  diff_vs_stored=(full["bpb"] - stored[s]) if stored.get(s) is not None else None)

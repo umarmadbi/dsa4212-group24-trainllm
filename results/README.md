@@ -10,6 +10,9 @@ traceable to a file here.
 | `runs/<run_id>__s<seed>.json` | `code/train.py` (returned via `launch`) | **The full result of one run**: see "What is in a run file" below |
 | `runs/_replaced/` | `modal_app.py launch --fresh` | Older results of runs that were rerun (e.g. because of an infrastructure fault), kept with a timestamp, never deleted |
 | `failed/<run_id>.txt` | `modal_app.py` | Python error trace of a run that crashed |
+| `rescore/<run_id>__<tag>.json` | `modal_app.py rescore` | Validation re-scores of saved models: without contaminated documents (`nocontam`), extra sets (`full`), overlapping windows (`slide128`) |
+| `test/<run_id>__s<seed>.json` | `modal_app.py test_eval` (Phase 6, D42) | **The one-time test score** of a frozen model: per test set the declared BPB, the same without contaminated documents, overlapping windows (core models), text samples (marked runs), and the hash/commit of the frozen list that allowed it. Written once; never recomputed |
+| `contamination.json` | `modal_app.py contamination` | 13-gram overlap of every validation and test document with each training corpus (D25) |
 
 Read them with `python code/summarize.py E01` (a table per experiment), or open a JSON file directly.
 

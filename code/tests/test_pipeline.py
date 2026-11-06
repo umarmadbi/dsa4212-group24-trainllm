@@ -256,7 +256,7 @@ def test_all_config_files_load():
     import dataclasses
     from config import Config, load_config
     root = Path(__file__).resolve().parents[2] / "configs"
-    files = sorted(root.rglob("*.yaml"))
+    files = sorted(f for f in root.rglob("*.yaml") if f.name != "frozen_configs.yaml")   # the test-lock list (D42)
     assert files, "no config files found"
     types = {f.name: f.type for f in dataclasses.fields(Config)}
     py = {"float": float, "int": int, "bool": bool, "str": str, "list": list}
@@ -514,6 +514,91 @@ def test_sliding_bpb(d: Path):
         assert c["eot_targets_excluded"] == int((y == EOT).sum())
 
 
+def test_combined_recipe(d: Path, out: Path):
+    """E08 (D42): the combined recipe - Muon + a vocabulary variant + a different shape, never run together
+    before - trains through the same code paths: Muon gets exactly 4 x n_layer matrices, the data is the
+    variant's (hashed), the model learns, a simulated preemption resumes exactly, and rescore reads the variant."""
+    import rescore as R
+    import train as TR
+    if not (d / "vocab" / "v128").exists():
+        make_variant(d)
+    kw = dict(optimizer="muon", muon_lr=6e-3, vocab_size=128, data_variant="v128", n_layer=1, n_head=4, n_embd=64)
+    a = _crash_resume_equal(d, out, "recipe", **kw)
+    assert a["optimizer_info"]["name"] == "muon" and a["optimizer_info"]["muon_tensors"] == 4 * 1
+    assert a["data_check"]["data_variant"] == "v128" and a["params"]["token_embedding"] == 128 * 64
+    assert a["final_val_bpb"] < a["curve"][0]["val_bpb"] - 0.1
+    res = R.rescore(str(out / "recipe_cont"), str(d), ["fineweb_edu"], device="cpu")
+    assert res["data_dir"].endswith("vocab/v128") and abs(res["sets"]["fineweb_edu"]["diff_vs_stored"]) < 1e-9
+    # the AdamW part's LR is a separate knob (R1e diagnostic): Muon's effective LR stays muon_lr
+    cfg = tiny_cfg(**dict(kw, lr=1e-3))
+    m = GPT(GPTConfig(n_layer=1, n_head=4, n_embd=64, block_size=32, vocab_size=128, dropout=0.0, bias=False))
+    opt = TR.MuonAdamW(m, cfg, "cpu")
+    assert abs(opt.muon.param_groups[0]["lr_scale"] * cfg.lr - 6e-3) < 1e-15
+
+
+def test_test_lock(d: Path, out: Path):
+    """D42 test lock (DECLARATIONS sec. 5): evaluate_test refuses a draft list and unlisted runs; scores the TEST
+    split (not val) of the model's own vocabulary variant; removes the declared contaminated test documents;
+    adds the overlapping-window view; text samples decode; the real frozen list is consistent with results/."""
+    import evaluate_test as T
+    import rescore as R
+    if not (d / "vocab" / "v128").exists():
+        make_variant(d)
+    for root in (d, d / "vocab" / "v128"):          # a test split that differs from val (its first 60 %)
+        v = np.fromfile(root / "tokens" / "fineweb_edu" / "val.bin", dtype=np.uint16)
+        v[: int(len(v) * 0.6)].tofile(root / "tokens" / "fineweb_edu" / "test.bin")
+    common = dict(budget_s=1e9, schedule="steps", max_steps=15, eval_every_frac=10.0)
+    run(tiny_cfg(run_id="lockvar", vocab_size=128, data_variant="v128", **common), 0, str(d), str(out))
+    rid = "lockvar"                               # (real ids carry __s<seed>; the run dir here has none)
+    draft = f"status: draft\nruns:\n  {rid}__s0: {{tier: core, workspace: w}}\n"
+    frozen = f"status: frozen\nruns:\n  {rid}__s0: {{tier: core, workspace: w, sets: [fineweb_edu], sliding: 8}}\n"   # overrides (tiny model: T = 32)
+    for txt, who in ((draft, rid + "__s0"), (frozen, "other__s0")):
+        try:
+            T.check_lock([who], T.load_frozen(txt))
+            raise AssertionError("lock did not refuse")
+        except T.LockError:
+            pass
+    for bad in ("status: frozen\nruns:\n  x__s0: {tier: gold, workspace: w}\n",
+                "status: frozen\nruns:\n  x__s0: {tier: core}\n", "status: frozen\nruns:\n  x: {tier: core, workspace: w}\n"):
+        try:
+            T.load_frozen(bad)
+            raise AssertionError(f"accepted {bad!r}")
+        except ValueError:
+            pass
+    cont = {"union_declared": {"fineweb_edu/test": {"doc_indices": [0, 2]}, "fineweb_edu/val": {"doc_indices": [1]}}}
+    (out / f"{rid}__s0").symlink_to(out / rid)    # the run dir under its real-style id
+    res = T.evaluate_test(f"{rid}__s0", str(out), str(d), frozen, cont, device="cpu")
+    e = res["sets"]["fineweb_edu"]
+    test_toks = np.fromfile(d / "vocab" / "v128" / "tokens" / "fineweb_edu" / "test.bin", dtype=np.uint16)
+    model, c, _ = R.load_model(out / rid / "final_model.pt", "cpu")
+    tb = np.load(d / "vocab" / "v128" / "tokenizer" / "token_bytes.npy")
+    direct = evaluate_bpb(model, test_toks, tb, c["block_size"], c["eval_batch"], 127, "cpu")
+    assert res["split"] == "test" and e["full"]["bpb"] == direct["bpb"] and e["stored_bpb"] is None
+    assert e["excluded"]["docs_removed"] == 2 and res["excluded_docs"] == {"fineweb_edu": 2}
+    assert e["sliding"]["stride"] == 8 and res["entry"]["sets"] == ["fineweb_edu"]
+    try:
+        R.rescore(str(out / rid), str(d), ["fineweb_edu"], device="cpu", split="train")
+        raise AssertionError("accepted split=train")
+    except ValueError:
+        pass
+    # text samples (illustration only) decode with the real 8k tokenizer
+    tok = Path(__file__).resolve().parents[2] / "data" / "tokenizer.json"
+    if tok.exists():
+        torch.manual_seed(0)
+        m8 = GPT(GPTConfig(n_layer=1, n_head=2, n_embd=16, block_size=32, vocab_size=8192, dropout=0.0, bias=False)).eval()
+        import contextlib
+        smp = T.generate_samples(m8, tok, "cpu", contextlib.nullcontext())
+        assert len(smp) == len(T.SAMPLE_PROMPTS) and all(x["text"].startswith(x["prompt"]) for x in smp)
+    # the real frozen list: parses; every run has a result file recorded on the listed workspace
+    repo = Path(__file__).resolve().parents[2]
+    fl = T.load_frozen((repo / "configs" / "frozen_configs.yaml").read_text(encoding="utf-8"))
+    for r_id, ent in fl["runs"].items():
+        f = repo / "results" / "runs" / f"{r_id}.json"
+        assert f.exists(), f"frozen run without a result: {r_id}"
+        assert json.loads(f.read_text())["meta"]["modal_workspace"] == ent["workspace"], r_id
+    print(f"  frozen list: status {fl['status']}, {len(fl['runs'])} runs, workspaces match results/")
+
+
 if __name__ == "__main__":
     tmp = Path(tempfile.mkdtemp())
     d, out = tmp / "data", tmp / "runs"
@@ -534,6 +619,8 @@ if __name__ == "__main__":
              ("Muon optimizer: parameter split, schedule, resume (E05)", test_muon_optimizer, (d, out)),
              ("vocabulary variant data, byte-matched curve, hashes, rescore (E07)", test_data_variant, (d, out)),
              ("sliding-window BPB = declared BPB at stride T; each target once (E07)", test_sliding_bpb, (d,)),
+             ("combined recipe: Muon + vocab variant + shape, resume, rescore (E08)", test_combined_recipe, (d, out)),
+             ("test lock: refusals, test split of the variant, contamination, frozen list (D42)", test_test_lock, (d, out)),
              ("13-gram contamination check = brute force (E03 R3)", test_contamination_check, ()),
              ("rescore reproduces stored BPB; document removal", test_rescore_reproduces_and_excludes, (d, out)),
              ("all config files load with correct types", test_all_config_files_load, ()),

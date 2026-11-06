@@ -95,6 +95,21 @@ number used for decisions; FineWeb, DCLM and Wikipedia are extra information, sc
 | `V4096_lr*_15min.yaml`, `V16384_lr*_15min.yaml`, `V32768_lr*_15min.yaml` | Learning-rate pilots (5e-4, 1e-3, 2e-3, 4e-3: the grid N49 had in E01) for N49 (11 x 576, AdamW) with a 4,096 / 16,384 / 32,768-token vocabulary (`data_variant`, data built by `tools/prepare_vocab.py`). The `lr2.5e-4` and `lr8e-3` files are edge extensions, run only if `summarize.py E07` asks for them |
 | `V*_lr*_60min.yaml` | The 60-minute runs, one file per LR; only the picked LR is run (seed 0; seeds 1, 2 on a close call). Compared with E02-N49 (8,192 vocabulary). `python code/summarize.py E07` prints which to launch. Rules: decision D36 |
 
+## E08/: the combined recipe (Phase 6)
+
+| Files | What they are |
+|---|---|
+| `W6x768_V16384_muon_lr*_15min.yaml`, `N49_V16384_muon_lr*_15min.yaml` | Learning-rate pilots of the two recipes: **RA** = Muon + 6 layers x 768 + 16,384 vocabulary; **RB** = Muon + 11 x 576 + 16,384. Tuned value: `muon_lr` (1e-3, 2e-3, 4e-3, 8e-3, as E05); `2.5e-4`, `5e-4`, `1.6e-2`, `3.2e-2` are edge extensions, run only if `summarize.py E08` asks. AdamW part (embeddings, LayerNorm) at 2e-3 |
+| `*_60min.yaml` | The 60-minute runs, one file per `muon_lr`; only the picked one is run, seeds 0, 1, 2. Compared with the baseline (E02-N49), Muon alone (E05), 16k alone (E07) and each other. Rules: decision D42 |
+| `W6x768_V16384_muon_lr*_emb{1e-3,4e-3}_15min.yaml` | Diagnostic only (R1e): RA with the AdamW part's LR at 1e-3 / 4e-3, to see whether the embedding LR (never tuned under Muon) leaves gain. Never changes the recipe |
+
+## frozen_configs.yaml: the test-set lock (Phase 6)
+
+Not a run config. The list of every trained model whose result the report quotes, with the Modal workspace that holds
+it. `code/evaluate_test.py` scores a model on the test split only if it is listed here and `status: frozen`. It stays
+`draft` until the last E08 decision; then the E08 finals are added, it is set to `frozen` and committed, and only then
+is the test set scored (once). Its git history is the proof the test set was not used for any decision (D42).
+
 ## Settings (every field a config can have)
 
 Fields left out take the default from `code/config.py`. Unknown fields are rejected.

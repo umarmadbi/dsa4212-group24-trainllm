@@ -366,6 +366,124 @@ def rescore(run_ids: str, sets: str = "fineweb_edu,fineweb,dclm,wikipedia", excl
                      if "sliding" in e else ""))
 
 
+@app.function(gpu=GPU, cpu=4, memory=16384, timeout=3 * 60 * 60,
+              volumes={"/data": data_vol, "/runs": runs_vol})
+def test_one(run_ids: list, frozen_text: str, contamination: dict, frozen_commit: str) -> list:
+    """D42 test lock, container side: scores each run ONCE on the test split, one after another in this container.
+    Re-checks the lock here too: the frozen list shipped in the image must equal the laptop's committed one, and a
+    run whose test result already exists on this workspace's runs Volume is refused (never re-scored)."""
+    import sys
+    import time
+    sys.path.insert(0, "/root/code")
+    import evaluate_test as T
+    shipped = Path("/root/configs/frozen_configs.yaml").read_text(encoding="utf-8").replace("\r\n", "\n")
+    if T.sha256_text(shipped) != T.sha256_text(frozen_text):
+        return [{"run_id": r, "error": "frozen list in the image differs from the laptop's"} for r in run_ids]
+    gpu_name = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                              capture_output=True, text=True).stdout.strip()
+    out_dir = Path("/runs/_analysis/test")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    outs = []
+    for rid in run_ids:
+        f = out_dir / f"{rid}.json"
+        if f.exists():
+            outs.append({"run_id": rid, "error": "ALREADY SCORED on this workspace (test lock: once only); "
+                         "fetch it with --fetch-only"})
+            continue
+        if not (Path("/runs") / rid / "final_model.pt").exists():
+            outs.append({"run_id": rid, "error": f"{rid}/final_model.pt not on this workspace's runs Volume"})
+            continue
+        t0 = time.time()
+        try:
+            res = T.evaluate_test(rid, "/runs", "/data", frozen_text, contamination, device="cuda")
+        except T.LockError as e:
+            outs.append({"run_id": rid, "error": str(e)})
+            continue
+        res.update(gpu_name=gpu_name, frozen_commit=frozen_commit, seconds=round(time.time() - t0, 1),
+                   scored_at_utc=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"))
+        f.write_text(json.dumps(res))
+        runs_vol.commit()           # saved before the next model: a dropped connection loses nothing
+        outs.append(res)
+    return outs
+
+
+@app.local_entrypoint()
+def test_eval(run_ids: str = "", tiers: str = "core,data,extra", fetch_only: bool = False):
+    """D42: one-time test-set scoring of the frozen runs held by the CURRENT workspace (DECLARATIONS sec. 5).
+        $env:MODAL_PROFILE = "jinkyungjeon"; modal profile current
+        modal run --detach modal_app.py::test_eval                 # every frozen run of this workspace
+        modal run modal_app.py::test_eval --fetch-only             # after a dropped connection
+        modal run --detach modal_app.py::test_eval --tiers core,data   # leave the low-priority 'extra' tier out
+    Refuses unless configs/frozen_configs.yaml has status 'frozen' and is committed, code/configs/modal_app.py are
+    committed, and the run has never been scored (results/test/<run>.json, or on the Volume). Writes
+    results/test/<run>.json and one compute-ledger row per call."""
+    import sys
+    sys.path.insert(0, str(Path("code").resolve()))
+    import evaluate_test as T
+    frozen_path = Path("configs/frozen_configs.yaml")
+    frozen_text = frozen_path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    frozen = T.load_frozen(frozen_text)
+    ws = _modal_workspace()
+    print(f"workspace profile: {ws}")
+    tier_list = [t.strip() for t in tiers.split(",") if t.strip()]
+    ids = ([r.strip() for r in run_ids.split(",") if r.strip()] or
+           sorted((r for r, e in frozen["runs"].items() if e["workspace"] == ws and e["tier"] in tier_list),
+                  key=lambda r: tier_list.index(frozen["runs"][r]["tier"])))   # core first, then data, then extra
+    if not ids:
+        raise SystemExit(f"no frozen runs listed for workspace {ws!r}")
+    wrong = [r for r in ids if r in frozen["runs"] and frozen["runs"][r]["workspace"] != ws]
+    if wrong:
+        raise SystemExit(f"these runs are listed for another workspace (switch MODAL_PROFILE): {wrong}")
+    T.check_lock(ids, frozen)
+    git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True)
+    if git("ls-files", "--error-unmatch", str(frozen_path)).returncode != 0:
+        raise SystemExit("test lock: configs/frozen_configs.yaml is not committed")
+    info = _git_info()
+    if info["git_dirty"]:
+        raise SystemExit("test lock: code/, configs/, modal_app.py or requirements.txt differ from the last commit")
+    frozen_commit = git("log", "-1", "--format=%H", "--", str(frozen_path)).stdout.strip()
+    out = Path("results/test")
+    out.mkdir(parents=True, exist_ok=True)
+    if fetch_only:
+        results = []
+        for rid in ids:
+            try:
+                results.append(json.loads(b"".join(runs_vol.read_file(f"_analysis/test/{rid}.json"))))
+            except Exception as e:  # noqa: BLE001
+                print(f"not on the Volume (yet): {rid} ({e!r})")
+    else:
+        done = [r for r in ids if (out / f"{r}.json").exists()]
+        if done:
+            raise SystemExit(f"test lock: already scored (results/test): {done}. Test scores are computed once.")
+        cont = json.loads(Path("results/contamination.json").read_text())
+        print(f"scoring {len(ids)} frozen run(s) once, in one container: {', '.join(ids)}")
+        results = test_one.remote(ids, frozen_text, cont, frozen_commit)
+    ok = [r for r in results if "error" not in r]
+    ledger = Path("results/compute_ledger.csv")
+    if ok and f"TEST-{ws}," not in ledger.read_text(encoding="utf-8"):     # one row per workspace (also after --fetch-only)
+        secs = sum(r.get("seconds", 0) for r in ok)
+        with open(ledger, "a", newline="", encoding="utf-8") as fh:
+            csv.DictWriter(fh, fieldnames=LEDGER_FIELDS).writerow(dict(
+                run_id=f"TEST-{ws}", experiment="E08", kind="test-eval",
+                date_sgt=min(r["scored_at_utc"] for r in ok), member="umarmadbi", modal_workspace=ws,
+                gpu_name=ok[0].get("gpu_name", ""), git_commit=info["git_commit"], config="configs/frozen_configs.yaml",
+                seed="", counted_train_s="", wallclock_s=f"{secs:.0f} (scoring only, excl. container start)",
+                tokens_processed="", status="completed", cost_usd=f"{secs / 3600 * L4_USD_PER_HOUR:.3f} (GPU only)",
+                notes=f"one-time test scoring of {len(ok)} frozen run(s) (D42); date is UTC of the first score"))
+    for res in results:
+        rid = res["run_id"]
+        if "error" in res:
+            print(f"SKIPPED {rid}: {res['error']}")
+            continue
+        (out / f"{rid}.json").write_text(json.dumps(res, indent=1))
+        line = []
+        for c, e in res["sets"].items():
+            line.append(f"{c} {e['full']['bpb']:.4f}" + (f" (w/o {e['excluded']['docs_removed']} docs "
+                                                         f"{e['excluded']['bpb']:.4f})" if "excluded" in e else "")
+                        + (f" sliding {e['sliding']['bpb']:.4f}" if "sliding" in e else ""))
+        print(f"{rid}: " + "; ".join(line))
+
+
 # ---------------------------------------------------------------------------
 # Local side: runs on your computer, launches jobs and records their results.
 # ---------------------------------------------------------------------------
