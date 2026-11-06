@@ -1,0 +1,53 @@
+{
+ "run_id": "E01-N26_lr4e-3_60min__s0",
+ "seed": 0,
+ "device": "cuda",
+ "data_dir": "/data",
+ "split": "val",
+ "sets": {
+  "fineweb": {
+   "full": {
+    "bpb": 1.396883187018134,
+    "loss_per_token": 3.636494832415657,
+    "scored_tokens": 2663440,
+    "scored_bytes": 10003232,
+    "eot_targets_excluded": 3056,
+    "bytes_per_token": 3.755756465323041,
+    "windows": 5208,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null
+  },
+  "dclm": {
+   "full": {
+    "bpb": 1.552480133801533,
+    "loss_per_token": 3.90878705584863,
+    "scored_tokens": 2755729,
+    "scored_bytes": 10009837,
+    "eot_targets_excluded": 1903,
+    "bytes_per_token": 3.632373502619452,
+    "windows": 5386,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null
+  },
+  "wikipedia": {
+   "full": {
+    "bpb": 1.4741593797067933,
+    "loss_per_token": 3.4111303736212784,
+    "scored_tokens": 2995101,
+    "scored_bytes": 9998616,
+    "eot_targets_excluded": 3171,
+    "bytes_per_token": 3.3383234822465084,
+    "windows": 5856,
+    "context": 512
+   },
+   "stored_bpb": null,
+   "diff_vs_stored": null
+  }
+ },
+ "gpu_name": "NVIDIA L4",
+ "tag": "full"
+}

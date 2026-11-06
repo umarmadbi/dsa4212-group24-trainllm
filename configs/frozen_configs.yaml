@@ -12,7 +12,7 @@
 #
 # TO FREEZE (after every E08 decision; D42): add the E08 finals (both recipes, seeds 0-2, at their picked LR) under
 # `core`, set status: frozen, commit, then run test_eval once per workspace. Nothing in this file is edited after.
-status: draft
+status: frozen   # frozen 2026-11-06 after the last E08 decision (D45); never edited after
 runs:
   # ---- core ----
   E02-N49__s0: {tier: core, workspace: jinkyungjeon, group: "baseline (declared recipe: AdamW 11x576, 8k vocab)", samples: true}
@@ -28,7 +28,13 @@ runs:
   E07-V16384_lr2e-3_60min__s2: {tier: core, workspace: joshuahanrc, group: "Phase 5: vocab 16k"}
   E07-V32768_lr2e-3_60min__s0: {tier: core, workspace: giraffes573, group: "Phase 5: vocab 32k"}
   E07-V4096_lr2e-3_60min__s0: {tier: core, workspace: giraffes573, group: "Phase 5: vocab 4k"}
-  # ---- E08 finals: added at freeze time (both recipes, seeds 0-2; recipe s0 with samples: true) ----
+  # ---- E08 finals: added at freeze time (D45) (both recipes, seeds 0-2; recipe s0 with samples: true) ----
+  E08-W6x768_V16384_muon_lr4e-3_60min__s0: {tier: core, workspace: jinkyungjeon, group: "Phase 6 recipe RA (Muon + 6x768 + 16k)", samples: true}
+  E08-W6x768_V16384_muon_lr4e-3_60min__s1: {tier: core, workspace: jinkyungjeon, group: "Phase 6 recipe RA (Muon + 6x768 + 16k)"}
+  E08-W6x768_V16384_muon_lr4e-3_60min__s2: {tier: core, workspace: jinkyungjeon, group: "Phase 6 recipe RA (Muon + 6x768 + 16k)"}
+  E08-N49_V16384_muon_lr2e-3_60min__s0: {tier: core, workspace: jinkyungjeon, group: "Phase 6 recipe RB (Muon + 11x576 + 16k), declared final", samples: true}
+  E08-N49_V16384_muon_lr2e-3_60min__s1: {tier: core, workspace: jinkyungjeon, group: "Phase 6 recipe RB (Muon + 11x576 + 16k), declared final"}
+  E08-N49_V16384_muon_lr2e-3_60min__s2: {tier: core, workspace: umarmadbi, group: "Phase 6 recipe RB (Muon + 11x576 + 16k), declared final"}
   # ---- data (E03; the FineWeb-Edu arm is E02-N49 above) ----
   E03-N49_dclm__s0: {tier: data, workspace: jinkyungjeon, group: "Phase 3 data quality"}
   E03-N49_dclm__s1: {tier: data, workspace: jinkyungjeon, group: "Phase 3 data quality"}
