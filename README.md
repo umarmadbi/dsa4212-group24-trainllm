@@ -1,127 +1,110 @@
-# DSA4212 Group 24: Training small language models under computational constraints
+# Training small language models in 60 minutes on one GPU
 
-**If you get one hour on one GPU to train a language model from scratch, how should you spend that hour?**
+DSA4212 Group 24 · [Authors](AUTHORS.md) · [Report](report/) · [Project overview](docs/OVERVIEW.md) · [How to reproduce](docs/REPRODUCE.md)
 
-We train small GPT-style models (7M-65M parameters) from random initialisation, each for exactly **60 minutes on one
-NVIDIA L4 GPU** (rented on [Modal](https://modal.com)). We then ask what gives the best model for that fixed time:
-a bigger model, more or better data, or training tricks. Models are scored by **bits per byte (BPB)** on held-out
-text (lower is better).
+**If you can train a language model from scratch for only one hour on one GPU, how should you spend that hour?**
 
-**[The fixed rules (DECLARATIONS.md)](DECLARATIONS.md)**: budget, data, tokenizer, evaluation and seeds, committed
-before any experiment. Read this first.
+We trained GPT-style models (7M to 65M parameters) from random weights, each for exactly 60 minutes on one NVIDIA L4,
+and changed one thing at a time: model size, training data, data repetition, optimiser, model shape and vocabulary
+size. The two changes that helped most, the Muon optimiser and a 16,384-token vocabulary, add up almost exactly when
+combined: the final model predicts held-out text **0.041 bits per byte better** than our tuned baseline, and 0.050 with
+a wider model shape.
 
----
+## Declared setup (fixed before any experiment)
 
-## Status
+| | |
+|---|---|
+| **Compute budget** | 60 minutes of counted training time per run on 1 x NVIDIA L4 (bf16), rented on [Modal](https://modal.com). Learning-rate pilots and tokenizer training are excluded, as the brief allows |
+| **Initialisation** | Random weights only. GPT architecture from [nanoGPT](https://github.com/karpathy/nanoGPT); our own byte-level BPE tokenizer; no pretrained weights, embeddings or other components |
+| **Evaluation** | Bits per byte (BPB) on held-out FineWeb-Edu text: comparable across tokenizers, lower is better. Validation data for every decision; the test split scored once, at the end, for 57 models frozen in advance |
 
-| Phase | What it does | Status |
+Full rules and every later amendment: [docs/DECLARATIONS.md](docs/DECLARATIONS.md).
+
+## Main result
+
+Test set, FineWeb-Edu, mean of 3 training seeds unless noted. Seed-to-seed noise is about 0.0015 BPB; the declared
+threshold for a real difference between two 3-seed groups is 0.0091.
+
+| Model | Test BPB | vs baseline |
 |---|---|---|
-| 0 | Data, tokenizer, training code, tests, speed benchmarks | Done |
-| 1 | Tune the learning rate for each model size (15-min runs) + a 60-min check | Done: 2e-3 or 4e-3 for every size (DECLARATIONS Amendments) |
-| 2 | Main experiment: which model size is best in 60 minutes? | **Next** |
-| 3 | Data quality (FineWeb-Edu vs FineWeb vs DCLM) and repetition | Planned |
-| 4 | Training tricks: batch size, schedule, optimiser (pick 2-3) | Planned |
-| 5 | Vocabulary size | If time |
-| 6 | Final: best recipe vs baseline, 3 seeds each, test set used once | Planned |
+| Baseline: AdamW, 11 layers x 576 wide (49M parameters), 8,192-token vocabulary | 1.1994 | |
+| Muon optimiser instead of AdamW | 1.1731 | -0.026 |
+| 16,384-token vocabulary instead of 8,192 | 1.1834 | -0.016 |
+| 6 layers x 768 instead of 11 x 576, same size (1 seed) | 1.1814 | -0.018 |
+| **Recipe RB: Muon + 16k vocabulary (declared final)** | **1.1583** | **-0.041** |
+| **Recipe RA: Muon + 16k vocabulary + 6 x 768 (best measured)** | **1.1494** | **-0.050** |
 
----
+Other findings: within one hour the best model is much larger than Chinchilla's rule suggests (36M-65M parameters,
+4-11 tokens per parameter instead of ~20); DCLM text beats FineWeb-Edu on the average over four evaluation sets, and a
+60/40 mix of the two beats both; repeating the same data becomes harmful between 2 and 4 passes; a deep, narrow model
+(19 x 448) is worse. Every validation conclusion held on the test set. Details: [docs/OVERVIEW.md](docs/OVERVIEW.md).
 
-## Quick start (Windows PowerShell; the same commands work on macOS/Linux)
+## Quick start
+
+You need **Python 3.12 or newer** (3.11 cannot install the pinned packages), **git**, and a [Modal](https://modal.com)
+account with credit. All GPU and data work runs on Modal; your computer only launches jobs and summarises results.
+Clone the repository with git rather than downloading a ZIP: every run records the git commit it was launched from.
+Commands are for Windows PowerShell; macOS/Linux differences are in the comments.
+
+**1. Install (once, ~2 minutes)**
 
 ```powershell
-# 1. install (once)
 git clone https://github.com/umarmadbi/dsa4212-group24-trainllm.git
 cd dsa4212-group24-trainllm
-python -m venv .venv
+py -3.12 -m venv .venv                     # macOS/Linux: python3.12 -m venv .venv
 .venv\Scripts\Activate.ps1                 # macOS/Linux: source .venv/bin/activate
-pip install -r requirements-dev.txt        # modal + pyyaml: enough to launch runs
-modal setup                                # log in to your Modal account (opens a browser)
-
-# 2. check Modal gives you an L4 (~1 min, ~1 cent)
-modal run modal_app.py::gpu_check
-
-# 3. launch one training run (configs are in configs/; see configs/README.md)
-modal run modal_app.py::launch --configs configs/E01/N7_lr2e-3.yaml --seeds 0 --kind pilot
-
-# 4. summarise the results of an experiment
-python code/summarize.py E01
+pip install -r setup/requirements-dev.txt  # modal, pyyaml, scipy
+modal setup                                # log in to Modal (opens a browser)
+modal run modal_app.py::gpu_check          # ~1 min: must print an NVIDIA L4
 ```
 
-When a run finishes, `launch` writes `results/runs/<run_id>.json` and adds one row to `results/compute_ledger.csv`
-on your computer. Keep the terminal open until it prints `done ...`.
+**2. Check the code and the saved results on your computer (no Modal, free)**
 
-**Optional: run the correctness tests on your laptop** (CPU only, ~2 min, needs `pip install torch numpy`):
-`python code/tests/test_pipeline.py`. Expect `12/12 passed`.
-
-### Rules everyone must follow
-
-1. **Commit before you launch.** `launch` refuses to start if `code/`, `configs/`, `modal_app.py` or
-   `requirements.txt` have uncommitted changes. Every result records the commit it ran from.
-2. **Never edit or delete anything in `results/`.** A rerun keeps the old result (`results/runs/_replaced/`).
-3. **Never use the test set to choose anything.** All choices use the validation split; the test set is used once,
-   at the end, for frozen configurations only (DECLARATIONS.md section 5).
-4. **One config file per run.** To change a setting, make a new config with a new `run_id`; don't edit a config
-   that has already been run.
-5. **On Windows, list configs with commas.** `--configs "configs/E01/*.yaml"` fails because the Modal command
-   expands the `*` itself. Use `--configs "configs/E01/a.yaml,configs/E01/b.yaml"`.
-6. **Launching from your own Modal account?** Pass `--member <your name>`. Your account first needs its own copy
-   of the data (see [data/README.md](data/README.md)).
-
----
-
-## How one run works
-
-```
-configs/E01/N26_lr2e-3.yaml   (all settings for the run)
-        |
-        |  modal run modal_app.py::launch --configs ... --seeds 0
-        v
-Modal starts a fresh container with one L4 GPU
-  -> loads the training tokens into memory (not timed)
-  -> builds a new model with random weights (no pretrained weights, ever)
-  -> trains until 60 min (or 15 min for pilots) of counted time; the clock pauses
-     for validation checks and checkpoints; torch.compile warm-up IS counted
-  -> scores the final model on the full validation split (bits per byte)
-        |
-        v
-results/runs/E01-N26_lr2e-3__s0.json   +   one row in results/compute_ledger.csv
+```powershell
+pip install torch numpy pyyaml tokenizers
+python code/tests/test_pipeline.py         # ~2-5 min on CPU; last line must be: 22/22 passed
+python code/summarize.py E02               # rebuilds the model-size table from results/runs/
 ```
 
-If Modal loses the machine, it restarts the job automatically and the run resumes from its last checkpoint with its
-counted time kept (tested on Modal, 1 Nov).
+**3. Build the data on your Modal account (once, ~1 hour, ~$0.60)**
 
----
+```powershell
+modal run --detach modal_app.py::rebuild_data   # downloads the pinned dataset versions, builds tokens + tokenizer
+modal run modal_app.py::verify_data             # after it finishes: must print DATA CHECK PASSED
+```
+
+**4. Reproduce a run**
+
+```powershell
+modal run --detach modal_app.py::launch --configs configs/E02/N49.yaml --seeds 0 --kind final --member <your-name>
+```
+
+This retrains the baseline for 60 minutes (~$0.83). With `--detach` it keeps running if you close the terminal; fetch the
+result afterwards with `modal run modal_app.py::recover --run-ids "E02-N49__s0" --configs configs/E02/N49.yaml --kind final`.
+The result is written to `results/runs/E02-N49__s0.json` (our original is moved to `results/runs/_replaced/` and stays in
+git). Our three seeds scored 1.1936, 1.1961 and 1.1937 BPB; a new run should land within about 0.01 of these (single-run
+noise is ~0.006 BPB; runs on cloud GPUs are not bit-identical because a faster machine reads more text in the hour).
+
+The full guide (every experiment, the vocabulary variants, evaluation checks, expected values, and a
+**troubleshooting** table for common errors) is [docs/REPRODUCE.md](docs/REPRODUCE.md).
 
 ## Repository layout
 
-Every folder has a README that explains each file.
+Every folder has a README that describes each file in it.
 
-| Folder / file | What it contains |
+| Folder / file | Contents |
 |---|---|
-| [`DECLARATIONS.md`](DECLARATIONS.md) | The fixed rules, plus an Amendments table for every change |
-| [`modal_app.py`](modal_app.py) | **The entry point**: launches runs on Modal (`launch`), recovers results (`recover`), prepares data (`prepare_data`), checks the GPU (`gpu_check`) |
-| [`code/`](code/) | Training, model, evaluation and data-preparation code, tests, and the results summary script |
-| [`configs/`](configs/) | One YAML file per run, grouped by experiment (`E00/`, `E01/`, ...) |
-| [`data/`](data/) | The tokenizer and the data manifest (hashes, sizes). The token files themselves live on Modal |
-| [`results/`](results/) | One JSON per run and the compute ledger (every GPU job, its time and cost) |
-| [`report/`](report/) | The LaTeX report and its figures (not started yet) |
-| `requirements.txt` | Exact package versions installed in the Modal container (used for every run) |
-| `requirements-dev.txt` | Packages for your laptop: `modal` and `pyyaml` |
-| `.gitattributes` | Forces LF line endings, so hashed files (e.g. `data/tokenizer.json`) match `data/manifest.json` on Windows |
-
-Experiment numbering (used in config folders, run IDs and result files):
-
-| ID | Experiment | Phase |
-|---|---|---|
-| E00 | Pipeline checks, throughput benchmarks, Modal resume test | 0 |
-| E01 | Learning rate per model size (15-min pilots) and 60-min horizon check | 1 |
-| E02 | Model size vs training time, depth vs width, noise calibration | 2 |
-| E03 / E04 | Data quality / repetition | 3 |
-| E05+ | Efficiency and optimiser experiments, numbered as they start | 4-5 |
-| E99 | Final test-set evaluation | 6 |
-
----
+| [`modal_app.py`](modal_app.py) | The entry point for every job on Modal: training runs, data preparation and checks, re-scoring, test scoring |
+| [`code/`](code/) | Training loop, model, metric, data preparation, evaluation, results summaries, tests |
+| [`configs/`](configs/) | One YAML file per training run, in one folder per experiment (E00-E08), and the test-set lock |
+| [`data/`](data/) | Tokenizers and the data manifest (versions, sizes, hashes); the token files live on Modal |
+| [`tools/`](tools/) | Builder for the vocabulary-size variants (experiment E07) |
+| [`results/`](results/) | Every run's result file, the compute ledger, re-scores, contamination check, test scores |
+| [`docs/`](docs/) | Declared rules, project overview, reproduction guide, experiment write-ups, decision log, lab log |
+| [`report/`](report/) | The report source (LaTeX), bibliography and figures |
+| [`setup/`](setup/) | Package list for the laptop that launches jobs |
+| `requirements.txt` | Exact package versions inside the Modal container (used by every run) |
 
 ## Team
 
-Group 24. Names and student numbers: `authors.md` (to be added before submission).
+Group 24: Jeon Hyewon, Jeon Jinkyung, Joshua Han Rui Chou, Muhammad Umar Bin Madbi. Student numbers in [AUTHORS.md](AUTHORS.md).

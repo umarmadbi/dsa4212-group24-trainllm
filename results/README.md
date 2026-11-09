@@ -1,48 +1,36 @@
 # results/
 
-Everything the GPU runs produced. `launch` and `recover` in `modal_app.py` write these files automatically when a
-run finishes, so nothing here is typed by hand. **Never edit or delete them**: every number in the report must be
-traceable to a file here.
+Everything the GPU and CPU jobs produced. `modal_app.py` writes these files automatically when a job finishes; nothing
+here is typed by hand. **Never edit or delete them**: every number in the report must be traceable to a file here.
+Read them with `python code/summarize.py <experiment>` (a table per experiment, e.g. `E05`, or `TEST`), or open the JSON
+files directly. The write-ups that interpret them are in [docs/experiments/](../docs/experiments/).
 
 | Path | Written by | Contents |
 |---|---|---|
-| `compute_ledger.csv` | `modal_app.py` (every launch) | **One row per GPU job of any kind**, including failed and replaced ones: run ID, date, who launched it, Modal account, GPU, git commit, counted training time, container time, tokens, status, estimated cost, notes. The source of truth for how much compute we used |
-| `runs/<run_id>__s<seed>.json` | `code/train.py` (returned via `launch`) | **The full result of one run**: see "What is in a run file" below |
-| `runs/_replaced/` | `modal_app.py launch --fresh` | Older results of runs that were rerun (e.g. because of an infrastructure fault), kept with a timestamp, never deleted |
-| `failed/<run_id>.txt` | `modal_app.py` | Python error trace of a run that crashed |
-| `rescore/<run_id>__<tag>.json` | `modal_app.py rescore` | Validation re-scores of saved models: without contaminated documents (`nocontam`), extra sets (`full`), overlapping windows (`slide128`) |
-| `test/<run_id>__s<seed>.json` | `modal_app.py test_eval` (Phase 6, D42) | **The one-time test score** of a frozen model: per test set the declared BPB, the same without contaminated documents, overlapping windows (core models), text samples (marked runs), and the hash/commit of the frozen list that allowed it. Written once; never recomputed |
+| [`runs/`](runs/) | `modal_app.py launch` / `recover` | **One JSON file per training run** (180), plus `_replaced/` (older copies of 5 runs) |
+| [`rescore/`](rescore/) | `modal_app.py rescore` | 27 validation re-scores of saved models (contamination-free, extra sets, overlapping windows) |
+| [`test/`](test/) | `modal_app.py test_eval` | **The one-time test scores** of the 57 frozen models |
+| [`failed/`](failed/) | `modal_app.py launch` | Error trace of the one run that crashed on the GPU |
+| `compute_ledger.csv` | `modal_app.py` (every job) | **One row per GPU or CPU job of any kind**, including failed and repeated ones. The source of truth for compute time and cost |
 | `contamination.json` | `modal_app.py contamination` | 13-gram overlap of every validation and test document with each training corpus (D25) |
 
-Read them with `python code/summarize.py E01` (a table per experiment), or open a JSON file directly.
+## compute_ledger.csv
 
-## What is in a run file
+270 rows, one per job: training runs (`kind` = `pilot` 145, `final` 91, `benchmark` 24, `smoke` 3), data preparation on
+CPU (3) and test scoring (4). Columns: `run_id`, `experiment`, `kind`, `date_sgt`, `member`, `modal_workspace`,
+`gpu_name`, `git_commit`, `config`, `seed`, `counted_train_s` (the budgeted training time), `wallclock_s` (container
+time), `tokens_processed`, `status`, `cost_usd` (estimated from container time at $0.80 per L4 hour), `notes`. The
+estimated total is about $79.
 
-| Key | Meaning |
+| `status` | Meaning |
 |---|---|
-| `run_id`, `experiment`, `seed`, `config` | Which run this is and every setting it used |
-| `meta` | Git commit, whether the code was uncommitted (`git_dirty`), SHA-256 of the code and config, who launched it, Modal account, GPU name |
-| `params` | Parameter counts: total, embeddings, non-embedding |
-| `final_val_bpb` | **The headline number**: bits per byte on the full FineWeb-Edu validation split, final model (`null` if the run diverged) |
-| `final_val` | Full scoring details per validation set (loss per token, bytes, tokens scored) |
-| `curve` | Learning curve: validation BPB on a 1 MB subset every 5 % of the budget |
-| `counted_train_s`, `budget_s` | Counted training time and the budget it was given |
-| `tokens_processed`, `steps`, `passes_over_data` | How much text the model read |
-| `avg_tokens_per_s`, `steady_tokens_per_s`, `steady_tokens_per_s_early` / `_late` | Speed; early vs late shows any slow-down within the run |
-| `first_step_s` | Time of the first step = the compile warm-up (should be 17-45 s; ~0.1 s means the run skipped it, which is a fault) |
-| `attempts` | One entry per (re)start; more than one means the run was interrupted and resumed |
-| `diverged`, `diverged_at_step` | Whether the loss blew up (NaN) |
-| `frac_steps_clipped`, `train_log` | Gradient clipping and the training log (loss, learning rate, gradient norm every 30 s) |
-| `gpu_telemetry`, `gpu_telemetry_summary` | GPU clock, temperature and power every 30 s (L4s run at their 72 W power cap) |
-| `peak_memory_gb`, `mfu_steady`, `versions` | Memory, GPU utilisation, software versions |
+| `completed` | Finished normally (194 rows) |
+| `completed (result transfer failed)` | Trained normally, but the result did not reach the laptop; recovered later with `recover` (8 rows, E00) |
+| `failed` | The job, or the laptop's connection to it, failed; the reason is in `notes` (68 rows) |
 
-## Ledger `status` values
-
-| Status | Meaning |
-|---|---|
-| `completed` | Finished normally |
-| `diverged` | Finished early because the loss became NaN (a valid result: that learning rate is too high) |
-| `failed` | Crashed or never finished; reason in `notes` and `failed/` |
-| `completed (result transfer failed)` | Trained fine but the result did not reach the laptop; recovered later with `recover` (E00 only) |
-
-Cost is estimated from container time at $0.80 per L4 hour.
+Most `failed` rows are not failed training. 59 record the laptop losing its connection to Modal while it waited for a
+job; the job kept running on Modal and its result was recovered later (and has its own `completed` row). 8 record a
+YAML parsing bug in the first benchmark launch (`1.0e9` read as text; nothing trained). 1 is the resume test's
+GPU-only crash, which was fixed and rerun (see `failed/`). A few rows have an estimated cost written as text
+(e.g. `~0.10 (est.)`), and two use the workspace name `umarmadbi/main` for `umarmadbi`; scripts reading the ledger
+should allow for both.

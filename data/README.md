@@ -8,6 +8,7 @@ The tokenizer and the record of exactly which data we use. **The training text i
 | `tokenizer.json` | Our byte-level BPE tokenizer (8,191 BPE tokens + 1 end-of-text id = **8,192**), trained on train splits only. Contains no neural network |
 | `tokenizer_meta.json` | Tokenizer facts: vocabulary size, the end-of-text id (8191), the text it was trained on (200 MB from each training corpus), and SHA-256 hashes of the tokenizer files |
 | `manifest.json` | **The data record.** For every corpus: the pinned Hugging Face version (commit hash), the source files used, document and token counts per split, bytes per token, duplicates removed, and the **SHA-256 hash of every token file**. Written by `code/prepare_data.py` |
+| [`vocab/`](vocab/) | The tokenizers and data records of the three vocabulary-size variants used in E07 and E08 (4,096, 16,384, 32,768 tokens). See [vocab/README.md](vocab/README.md) |
 
 Do not edit these files. The hashes in `manifest.json` prove that validation and test never changed, and
 `.gitattributes` keeps their line endings fixed so the hashes also match on Windows.
@@ -31,11 +32,12 @@ experiments ever sees the same text twice.
 ├── tokenizer/
 │   ├── tokenizer.json, meta.json
 │   └── token_bytes.npy        bytes of text per token id (the BPB denominator)
-└── tokens/
-    ├── fineweb_edu/  train.bin  val.bin  test.bin
-    ├── fineweb/      train.bin  val.bin  test.bin
-    ├── dclm/         train.bin  val.bin  test.bin
-    └── wikipedia/               val.bin  test.bin
+├── tokens/
+│   ├── fineweb_edu/  train.bin  val.bin  test.bin
+│   ├── fineweb/      train.bin  val.bin  test.bin
+│   ├── dclm/         train.bin  val.bin  test.bin
+│   └── wikipedia/               val.bin  test.bin
+└── vocab/v<V>/       the same layout for each vocabulary variant (E07), built by tools/vocab_app.py
 ```
 
 `.bin` files are token ids stored as `uint16`, documents joined with the end-of-text id. Training runs read the
@@ -61,4 +63,4 @@ modal run modal_app.py::verify_data      # the hash check on its own (a few minu
 
 `rebuild_data` uses the sizes **and the exact Hugging Face dataset commits** recorded in `manifest.json` (not the
 datasets' latest versions), then checks that every token file and the tokenizer match `manifest.json`.
-DECLARATIONS.md requires `DATA CHECK PASSED` on a workspace before any run there counts.
+[DECLARATIONS.md](../docs/DECLARATIONS.md) requires `DATA CHECK PASSED` on a workspace before any run there counts.

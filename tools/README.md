@@ -3,6 +3,7 @@
 Helpers that run outside the training code. Kept out of `code/` on purpose: the training launcher
 (`modal_app.py::launch`) fingerprints `code/`, `configs/`, `modal_app.py` and `requirements.txt`, and these
 tools were added while Phase 4 was running, so Phase 4's later rounds keep the same code fingerprint (D31).
+The records of the built variants (tokenizers, hashes) are in [`data/vocab/`](../data/vocab/); the token files are on Modal.
 
 | File | What it does |
 |---|---|

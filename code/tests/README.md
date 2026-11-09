@@ -3,7 +3,7 @@
 Checks that the training and evaluation code is correct **before** any GPU money is spent. They run on CPU with a
 tiny synthetic dataset, in about 2 minutes, and use the real `train.py`, `model.py` and `bpb.py`.
 
-Run from the repo root (needs `pip install torch numpy pyyaml`):
+Run from the repo root (needs `pip install torch numpy pyyaml tokenizers`; without `tokenizers` the test-lock test fails and you get 21/22):
 
 ```powershell
 python code/tests/test_pipeline.py
