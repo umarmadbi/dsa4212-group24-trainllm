@@ -4,7 +4,7 @@ DSA4212, Group 24.
 
 | Name | Student number |
 |---|---|
-| Jeon Hyewon | A0XXXXXXX |
+| Jeon Hyewon | A0288370W |
 | Jeon Jinkyung | A0288577A |
 | Joshua Han Rui Chou | A0272122U |
 | Muhammad Umar Bin Madbi | A0272103W |
