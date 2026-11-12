@@ -121,7 +121,7 @@ At 60 minutes the loss falls until 36M parameters and then flattens. The 36M, 49
   L(N, D) = E + \frac{A}{N^{a}} + \frac{B}{D^{b}},
   \label{eq:law}
 \end{equation}
-to our 14 complete runs (largest residual 0.013 BPB) gives $a = 0.16$ and $b = 0.84$. This suggests an equal-FLOP optimum of approximately 56M parameters (leave-one-out range 40--60M) and 4.8 tokens per parameter, compared with 27M parameters and 20 tokens per parameter under Chinchilla's published law. In our setting, loss falls quickly with additional data and slowly with parameters, making extra model capacity more valuable after a few hundred million tokens. We also saw a winner's curse: the first seed of both the 36M and 65M models ran on fast machines and was each size's best result, and only three seeds revealed the tie. By the pre-declared rule, N49 became the baseline for all later experiments.
+to our 14 complete runs (largest residual 0.013 BPB), where $N$ is the number of parameters, $D$ the number of training tokens and $E$, $A$, $B$ fitted constants, gives $a = 0.16$ and $b = 0.84$. This suggests an equal-FLOP optimum of approximately 56M parameters (leave-one-out range 40--60M) and 4.8 tokens per parameter, compared with 27M parameters and 20 tokens per parameter under Chinchilla's published law. In our setting, loss falls quickly with additional data and slowly with parameters, making extra model capacity more valuable after a few hundred million tokens. We also saw a winner's curse: the first seed of both the 36M and 65M models ran on fast machines and was each size's best result, and only three seeds revealed the tie. By the pre-declared rule, N49 became the baseline for all later experiments.
 
 \subsection{Data Quality and Generalisation}\label{sec:data}
 
@@ -251,6 +251,7 @@ Most published results we tested did not transfer unchanged to a one-hour budget
 \item Jordan, K., et al. (2024). Muon: An optimizer for hidden layers in neural networks. \url{https://kellerjordan.github.io/posts/muon/}
 \item Kaplan, J., et al. (2020). Scaling laws for neural language models. arXiv:2001.08361.
 \item Karpathy, A. (2023). nanoGPT. \url{https://github.com/karpathy/nanoGPT}
+\item Karpathy, A. (2024). Reproducing GPT-2 (124M) in llm.c in 90 minutes for \$20. \url{https://github.com/karpathy/llm.c/discussions/481}
 \item Li, J., et al. (2024). DataComp-LM: In search of the next generation of training sets for language models. arXiv:2406.11794.
 \item Liu, J., et al. (2025). Muon is scalable for LLM training. arXiv:2502.16982.
 \item Liu, Z., et al. (2024). MobileLLM: Optimizing sub-billion parameter language models for on-device use cases. \emph{ICML 2024}. arXiv:2402.14905.
