@@ -101,7 +101,7 @@ Every folder has a README that describes each file in it.
 | [`tools/`](tools/) | Builder for the vocabulary-size variants (experiment E07) |
 | [`results/`](results/) | Every run's result file, the compute ledger, re-scores, contamination check, test scores |
 | [`docs/`](docs/) | Declared rules, project overview, reproduction guide, experiment write-ups, decision log, lab log |
-| [`report/`](report/) | The report source (LaTeX), bibliography and figures |
+| [`report/`](report/) | The report source (LaTeX, references included) and its figures |
 | [`setup/`](setup/) | Package list for the laptop that launches jobs |
 | `requirements.txt` | Exact package versions inside the Modal container (used by every run) |
 
