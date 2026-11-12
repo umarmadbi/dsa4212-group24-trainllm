@@ -1,5 +1,20 @@
 # E03: Which training corpus gives the best model in 60 minutes? (Phase 3a, data quality)
 
+## Summary
+- **Question:** N49, one hour, same tokenizer; only the training text changes. Which corpus predicts text best on average
+  over four kinds of text (FineWeb-Edu, raw FineWeb, DCLM, Wikipedia; the equal-weight average "AVG4" declared on 30 Oct)?
+- **Answer:** **DCLM is the best single corpus** (AVG4 1.3673 vs FineWeb-Edu 1.3954 and raw FineWeb 1.3969; ~5x the noise
+  threshold). **A 60/40 FineWeb-Edu/DCLM mix is better still** (1.3460, 0.021 ahead of DCLM). FineWeb-Edu is best only on
+  FineWeb-Edu text, where it leads by 0.07-0.08. The educational filter does not beat unfiltered web text on average.
+- **Held on every check:** machine-speed adjustment, a per-corpus learning-rate check, removal of near-duplicate
+  (contaminated) validation documents, and the test set, scored once at the end (every gap within 0.003 of validation).
+- **Consequence:** by a rule fixed before the results (R9), Phases 4-6 stayed on FineWeb-Edu, because the declared objective
+  is FineWeb-Edu text. The mix is the report's recommendation when the goal is broad text.
+- **Both predictions missed:** we expected differences within ~0.01 and FineWeb-Edu best on Wikipedia; the mix was expected
+  to tie DCLM, not beat it.
+- **Cost:** 9 sixty-minute runs (6 single-corpus, 3 mixture) + 4 fifteen-minute pilots; the FineWeb-Edu arm reuses E02-N49.
+  10.0 counted GPU-hours, ledger $8.44, 4 Nov 2026.
+
 
 ## Goal
 Same model (N49), same hour, same tokenizer; only the text it learns from changes. FineWeb-Edu is web text
@@ -165,9 +180,9 @@ Contamination check (giraffes573, CPU, 283-419 s per training corpus): `results/
 ### Mixture (R8, D27)
 | Run | Workspace | Start | FWE val | FineWeb val | DCLM val | Wikipedia val | AVG4 | Tokens | Speed |
 |---|---|---|---|---|---|---|---|---|---|
-| mix s0 | giraffes573 | 4 Nov 17:2x | 1.2134 | 1.3682 | 1.3781 | 1.4099 | 1.3424 | 306M | +2.2 % |
-| mix s1 | giraffes573 | 4 Nov 17:2x | 1.2167 | 1.3713 | 1.3814 | 1.4144 | 1.3460 | 286M | -4.8 % |
-| mix s2 | jinkyungjeon | 4 Nov 17:2x | 1.2200 | 1.3743 | 1.3837 | 1.4206 | 1.3496 | 292M | -2.2 % |
+| mix s0 | giraffes573 | 4 Nov 17:23 | 1.2134 | 1.3682 | 1.3781 | 1.4099 | 1.3424 | 306M | +2.2 % |
+| mix s1 | giraffes573 | 4 Nov 17:31 | 1.2167 | 1.3713 | 1.3814 | 1.4144 | 1.3460 | 286M | -4.8 % |
+| mix s2 | jinkyungjeon | 4 Nov 17:24 | 1.2200 | 1.3743 | 1.3837 | 1.4206 | 1.3496 | 292M | -2.2 % |
 | **mix mean** | | | 1.2167 | 1.3713 | 1.3811 | **1.4150** | **1.3460** | | |
 
 - R1: mix better than DCLM by 0.0213, FWE by 0.0494, FineWeb by 0.0509 (threshold 0.0085, pooled sigma 0.0053, 15 df): REAL.
@@ -175,6 +190,23 @@ Contamination check (giraffes573, CPU, 283-419 s per training corpus): `results/
 - Cost on the declared objective: FWE val +0.0222 vs the FWE arm (beyond 0.0091). Best of all arms on Wikipedia (by 0.034)
   and better than both parents on raw FineWeb val.
 - Prediction partly missed (we expected AVG4 within noise of DCLM); FWE-val cost as predicted.
+- Mixture runs: commit 3f371ee (D26), all clean (1 attempt, cold compile, one run per container); realised token shares
+  0.600 / 0.400 in every run; re-scored without contaminated documents (exact match to the stored scores first).
+
+### Test set (scored once at the end, D47)
+| Trained on (3 seeds) | FWE test | FineWeb test | DCLM test | Wikipedia test | **AVG4 test** | AVG4 val | Test - val | AVG4 test without contaminated docs |
+|---|---|---|---|---|---|---|---|---|
+| FineWeb-Edu (E02-N49) | **1.1994** | 1.3708 | 1.5426 | 1.4660 | 1.3947 | 1.3954 | -0.0006 | 1.3953 |
+| raw FineWeb | 1.2728 | **1.3181** | 1.5097 | 1.4822 | 1.3957 | 1.3969 | -0.0012 | 1.3955 |
+| DCLM | 1.2805 | 1.3722 | **1.3679** | 1.4531 | 1.3684 | 1.3673 | +0.0011 | 1.3685 |
+| **60/40 mix** | 1.2219 | 1.3583 | 1.3884 | **1.4190** | **1.3469** | 1.3460 | +0.0009 | 1.3473 |
+
+Gaps on test (validation in brackets): mix vs DCLM 0.0215 (0.0213); mix vs FineWeb-Edu 0.0478 (0.0494); DCLM vs FineWeb-Edu
+0.0263 (0.0280); DCLM vs FineWeb 0.0273 (0.0296); FineWeb-Edu vs FineWeb 0.0010 (0.0016, still a tie). Without the
+contaminated test documents every gap moves by <= 0.0006. The 9 E03 models ("data" tier) and the 3 baseline models
+("core" tier) were listed in `configs/frozen_configs.yaml`, scored on all four test sets once after all experiments;
+nothing was decided from test.
+`python code/summarize.py TEST`; files `results/test/E03-*.json`, `results/test/E02-N49__s*.json`.
 
 ## Findings
 1. **Under a 60-min budget, a 60/40 FineWeb-Edu/DCLM mix gives the best average over four kinds of text** (AVG4 1.346),
@@ -185,7 +217,25 @@ Contamination check (giraffes573, CPU, 283-419 s per training corpus): `results/
    objective is FineWeb-Edu, Phases 4-6 stay on FineWeb-Edu (R9, declared before the results).
 3. **The educational filter does not beat raw web text on average** (FWE vs FineWeb inconclusive): what it gains on
    educational text it loses on everything else.
-4. Not explained by machine speed, the learning rate, or contamination (all checked by declared rules).
+4. Not explained by machine speed, the learning rate, or contamination (all checked by declared rules), and reproduced on
+   the test set.
+5. **What each filter keeps matters more than "quality" in general.** Each model is best on its own kind of text, but the
+   size of that home advantage differs: DCLM's model is 0.164 better than the others on DCLM text, FineWeb-Edu's 0.078 on
+   FineWeb-Edu text. FineWeb-Edu's educational filter narrows what the model sees; DCLM's classifier keeps a broader range
+   of well-written text, which transfers better to Wikipedia and raw web text. The mix gets most of both.
+
+### Outcome of every declared rule
+| Rule | Fired? | Outcome |
+|---|---|---|
+| R1 decision (AVG4, 3 seeds, 1.6 sigma) | Yes | DCLM better than FineWeb-Edu (+0.028) and FineWeb (+0.030); FineWeb-Edu vs FineWeb tie; mixture better than all three (+0.021 vs DCLM) |
+| R2 per-set results | Reported | Every arm best on its own text; DCLM and the mix also best on Wikipedia |
+| R3 contamination | Yes (3 sets > 1 %) | 145 validation docs removed for every arm: every verdict unchanged (DCLM +0.029 / +0.030; mix +0.021) |
+| R4 infrastructure | Never | No run replaced; every run clean |
+| R5 machine speed | Reported | Same verdicts after adjustment; the DCLM arm had the slowest machines |
+| R6 learning rate per corpus | Checked | 2e-3 vs 4e-3 differ by 0.0017 (FineWeb) and 0.0012 (DCLM), threshold 0.0188: no 4e-3 sensitivity run needed |
+| R7 descriptive | Reported | In-domain advantage DCLM -0.164, FWE -0.078, FineWeb -0.051 |
+| R8 mixture trigger | Fired | 60/40 mix run with 3 seeds (rules D26): best AVG4, costs 0.022 on FineWeb-Edu text |
+| R9 corpus for Phases 4-6 | Applied | FineWeb-Edu (declared objective), whatever E03 found |
 
 ## Surprises, failures and what we changed
 - **Prediction missed:** we expected differences within ~0.01 with FineWeb-Edu or DCLM lowest; DCLM wins by ~0.03.
@@ -193,3 +243,77 @@ Contamination check (giraffes573, CPU, 283-419 s per training corpus): `results/
   Fixed (lazy import, D26).
 - R8's "complementary profiles" condition fires almost automatically when each corpus wins on its own text; it was
   declared that way, so the mixture is run, and this is noted.
+- **The mixture needed new code that did not fit in memory as first designed:** loading two full training sets would have
+  used ~15 GB of a 16 GB container. Each corpus instead contributes a random 1B-token pool, 6-9x what an hour reads, so
+  nothing repeats (D26). Tested before launch: shares exact to one window, exact resume after a simulated crash.
+- **The summary script would have mixed the 15-minute LR pilots into the arms** (it grouped every E03 run by corpus).
+  Found in the pre-launch review and fixed before any run (D25).
+- **All launch terminals lost their connection** (laptop network); every run continued on Modal and was recovered. The
+  9 + 3 'failed' E03 ledger rows (two launch rounds) are annotated and carry no cost.
+
+## How this relates to the readings
+- **Penedo et al. (2024), FineWeb / FineWeb-Edu:** FineWeb-Edu keeps pages an LLM-trained classifier scores as
+  educational; its authors report large gains on knowledge and reasoning benchmarks (MMLU, ARC) and smaller ones on
+  common-sense ones. Our result is the language-modelling version of that trade-off: a large gain on educational text,
+  none on average.
+- **Li et al. (2024), DataComp-LM (DCLM):** DCLM-baseline keeps pages a fastText classifier finds similar to
+  instruction-style and explanatory answers (OpenHermes, ELI5), a broader notion of "well written" than "educational".
+  That breadth is our best explanation for DCLM generalising best among single corpora.
+- **Allal et al. (2025), SmolLM2 / the Smol Training Playbook:** they mix FineWeb-Edu and DCLM because the two are
+  complementary. Our mixture result is a direct small-scale confirmation, on held-out text rather than benchmarks.
+- **Hoffmann et al. (2022, Chinchilla) / Muennighoff et al. (2023):** data choice is not part of their scaling laws, which
+  assume one fixed distribution. E03 shows that changing the training distribution moves the four-set average by up to
+  0.03-0.05 and a single set by up to 0.16 BPB: the same order as the single changes of Phases 4-5 measured on
+  FineWeb-Edu (Muon -0.026, 16k vocabulary -0.016, 6 x 768 shape -0.018), so data choice belongs in the "where should the
+  hour go" question even though the budget does not change.
+
+## Limitations and what remains uncertain
+- **One model size (N49) and one budget.** Data effects can change with scale; DCLM's advantage is shown at 49M only.
+- **One mixture ratio (60/40).** Not tuned; another ratio could be better, and it was chosen from the plan, not the data.
+- **The declared average weights four sets equally,** and the sets pair up by style (FineWeb-Edu with Wikipedia, FineWeb
+  with DCLM). Another weighting would change the size of the gaps; per-set results are reported so readers can reweight.
+- **Validation and test come from one source file per corpus,** so each set is a slightly narrow sample. The same for
+  every arm.
+- **Only the peak learning rate was checked per corpus** (R6); weight decay, warm-up and batch were tuned on FineWeb-Edu.
+- **BPB measures text prediction only,** not knowledge or reasoning; the benchmark gains reported for FineWeb-Edu are not
+  tested here.
+- **FineWeb-Edu is a subset of FineWeb,** so the two arms are not independent samples of "filtered" and "unfiltered" web.
+
+## What happened later / follow-ups
+- **Phases 4-6 trained on FineWeb-Edu** (R9). The final recipe (E08) improves FineWeb-Edu test BPB by 0.041 over the
+  N49 baseline; it was not combined with the mixture.
+- **The learning-rate check (R6)** became the evidence that E01's tuning transfers across corpora (cited in E01).
+- **The contamination check and rescoring tool** built for R3 were reused for every later evaluation: all test scores in
+  D47 are also reported without contaminated documents.
+- **Not done:** a sweep of mixture ratios; DCLM or the mix at other model sizes; combining the final recipe with the mix.
+
+## Compute and time used
+| Item | Jobs | Counted GPU time | Wall time | Ledger cost |
+|---|---|---|---|---|
+| FineWeb and DCLM arms, 3 seeds each (60 min) | 6 | 6.0 h | 6.3 h | $5.01 |
+| 60/40 mixture, 3 seeds (60 min) | 3 | 3.0 h | 3.1 h | $2.51 |
+| LR pilots, FineWeb and DCLM x 2e-3, 4e-3 (15 min) | 4 | 1.0 h | 1.2 h | $0.92 |
+| FineWeb-Edu arm (E02-N49, reused) | 0 | - | - | - |
+| **Total** | **13** | **10.0 h** | **10.6 h** | **$8.44** |
+
+Plus, not in the ledger: the contamination check (3 CPU jobs, 283-419 s each) and 12 short re-scoring jobs on L4s (a few
+minutes each). Runs from 4 Nov 12:04 (first start) to ~18:30 (last mixture run finished); workspaces giraffes573 and
+jinkyungjeon. The ledger counts GPU time only; Modal also bills CPU and memory (~1.2x in total).
+
+## How to reproduce
+- Configs: `configs/E03/N49_{fineweb,dclm,mix_fwe60_dclm40}.yaml` (seeds 0-2), `configs/E03/*_15min.yaml` (seed 0); the
+  FineWeb-Edu arm is `configs/E02/N49.yaml` (seeds 0-2).
+- Contamination: `modal run --detach modal_app.py::contamination` -> `results/contamination.json`; re-scores:
+  `modal run modal_app.py::rescore --run-ids "..." --exclude contamination` (from each run's own workspace).
+- Tables and decisions: `python code/summarize.py E03`; test: `python code/summarize.py TEST`.
+- Result files: `results/runs/E03-*.json`, `results/runs/E02-N49__s*.json`, `results/rescore/*__nocontam.json`,
+  `results/test/E03-*.json`. Decisions D23, D25, D26, D27; DECLARATIONS Amendments rows of 4 Nov.
+
+## How this phase supports the report (marking criteria)
+| Criterion | Evidence from E03 |
+|---|---|
+| Experimental design and exploration (35 %) | A metric declared before the project that does not favour the home corpus (AVG4); every robustness check (speed, LR, contamination) and the follow-up mixture written down before their runs; the surprising DCLM result followed up with the mixture |
+| Understanding and problem formulation (25 %) | Why a model looks best on its own text and how the metric handles it; what each quality filter keeps (FineWeb-Edu vs DCLM) and why that matters for transfer; the link to SmolLM2's mixing |
+| Analysis and report quality (20 %) | Noise-based verdicts (one tie reported as a tie); missed predictions reported as missed; per-set table so the reader can reweight; limitations listed; validation conclusions confirmed on test |
+| Implementation and reproducibility (20 %) | Every number traced to run, re-score and test files; contamination tool and mixture loader tested before use; dropped-connection rows annotated; the corpus for later phases fixed in advance (R9) |
+

@@ -1,5 +1,23 @@
 # E04: How much does repeating the same text hurt? (Phase 3b, repetition)
 
+## Summary
+- **Question:** N49 gets its usual hour but only a random slice of FineWeb-Edu, sized so that the hour reads it ~2, 4, 8,
+  16 or 32 times. From how many passes does repeating the same text become worse than fresh text, and by how much?
+- **Answer:** **2 passes: not distinguishable from unique data** (+0.0066, 3 seeds); **4 passes: measurably worse**
+  (+0.024, 3 seeds); 8 passes +0.090 (3 seeds); 16 passes +0.47; 32 passes +2.45, worse than an untrained model. From
+  ~7-8 passes the model memorises its slice: validation loss turns up while training loss keeps falling.
+- **In "effective data":** the hour's tokens were worth 91 % (2 passes), 70 % (4) and 38 % (8) of the same amount of new
+  text. Muennighoff et al. found repeats nearly free up to ~4 epochs; at our scale they are not.
+- **Follow-ups (declared before their runs):** with the unique data limited to 36M tokens, a **smaller model does not
+  help** (N17 worse, N26 no better; N65, the largest, did best by 0.016). **Re-cutting the training windows every pass**
+  recovers ~0.013-0.022, at most about a quarter of the damage, so most of it is not caused by showing identical samples.
+  The N65 and re-cut gains are at the edge of our resolution.
+- **Held on the test set** (scored once at the end): every penalty within 0.0005 of its validation value.
+- **Predictions:** 2 passes "free" held; 4 passes "free" missed; "smaller models win under a data limit" missed (opposite);
+  "re-cutting helps modestly" held.
+- **Figure:** `report/figures/repetition.pdf` (`code/plots/fig_repetition.py`): BPB vs passes; validation curves vs passes.
+- **Cost:** 15 sixty-minute runs, 15.0 counted GPU-hours, ledger $12.50, 4-5 Nov 2026.
+
 
 ## Goal
 Our models never saw the same text twice (an hour of N49 reads ~290M of 2.45B tokens). With less data, the same text has
@@ -99,7 +117,12 @@ our setup, each tested with one cheap run per point (seed 0; vs E04-N49_rep8 see
 Commit 4fce312 (D23 + D25), joshuahanrc, launched 11:56; starts 12:27 (k=2), 12:29 (4), 13:42 (8), 13:43 (16), 13:52 (32).
 Launch terminal lost its connection (5 'failed' ledger rows, to annotate); all completed (1 attempt, cold compile, one
 run per container) and were recovered ~15:00.
-R2 bracket seeds (k = 2, 4 x s1, s2): commands given 15:05, joshuahanrc (launch time to be logged).
+R2 bracket seeds (k = 2, 4 x seeds 1, 2): joshuahanrc, commit 4fce312, launched 4 Nov 15:17, done by 17:16; all clean.
+Follow-ups F2/F3: commit 3f371ee (D26), launched 4 Nov 17:22-17:24 (giraffes573: N17, N26; jinkyungjeon: N65, shifted
+windows), recovered ~00:20 on 5 Nov; all clean.
+Reference seeds (k = 8 x seeds 1, 2, D27): joshuahanrc, commit a1dd2b9, starts 5 Nov 00:52 and 02:38; clean.
+Every launch terminal lost its connection; all runs continued on Modal and were recovered (5 + 4 + 2 'failed' ledger rows,
+annotated, no cost).
 
 ## Results
 ### Seed 0 (D26)
@@ -115,7 +138,8 @@ R2 bracket seeds (k = 2, 4 x s1, s2): commands given 15:05, joshuahanrc (launch 
   (3.46): the model memorises its 9M-token slice. Its UNSTABLE flag (P10: training-loss jump 0.149 between 30-s logs) is
   the per-pass sawtooth of memorisation, not instability (gradient norms < 1, 0.25 % clipped steps). Kept, explained.
 - **R6 effective data (diagnostic):** loss law refitted on all 14 unique-data points (reproduces D24). Effective /
-  seen tokens: k=2 0.87 (253M of 291M; the repeated half worth ~0.74 of new data), 4 0.69, 8 0.35, 16 0.09, 32 0.01.
+  seen tokens at seed 0: k=2 0.87 (253M of 291M; the repeated half worth ~0.74 of new data), 4 0.69, 8 0.35, 16 0.09,
+  32 0.01. **With 3 seeds (D29): k=2 0.91, 4 0.70, 8 0.38.**
   Calibration on the three unique runs 0.99-1.04x. Effective data FALLS after ~8 passes, which Muennighoff's saturating
   form cannot represent, so its fitted R* (0.6) is not meaningful here.
 - **R2 (3 seeds, done 17:16):** k = 2: 1.2044 / 1.2033 / 1.1956, delta +0.0066 (not distinguishable, threshold 0.0091);
@@ -139,6 +163,39 @@ R2 bracket seeds (k = 2, 4 x s1, s2): commands given 15:05, joshuahanrc (launch 
   (others +0.074-0.077). Proposed: E04-N49_rep8 seeds 1, 2, with F2/F3 reported against both seed 0 (declared) and the 3-seed
   mean (threshold 0.0132).
 
+### Reference seeds and the final F2/F3 verdicts (D29)
+N49 k = 8 seeds 1, 2: 1.2722, 1.2873; with seed 0 (1.2933) the mean is **1.2842** (sd 0.0108; +0.090 vs unique). Seed 0 was
+the worst of the three, which explains most of its outlying cost.
+
+| Run (36.25M unique tokens) | vs seed-0 ref (declared D26, > 0.0161) | vs 3-seed ref (declared D27, > 0.0132) | Repeated-data noise (> 0.0171, sensitivity) |
+|---|---|---|---|
+| N17 | +0.0103 inconclusive | **+0.0193 WORSE** | WORSE |
+| N26 | -0.0019 inconclusive | +0.0071 inconclusive | inconclusive |
+| N65 | **-0.0245 BETTER** | **-0.0155 BETTER** | inconclusive |
+| N49, re-cut windows (F3) | **-0.0223 BETTER** | **-0.0133 BETTER** | inconclusive |
+
+- The two declared references agree for N65 and F3 (D27 rule: not "sensitive to the reference seed").
+- **Repeated-data runs are noisier:** seed sd 0.0048 / 0.0048 / 0.0108 at k = 2 / 4 / 8, pooled 0.0074 (6 df) vs 0.0057
+  for unique data (not significant, p = 0.22). With that noise the threshold becomes 0.0171 and the N65 and F3 gains become
+  inconclusive. More seeds (~$4.8) were not run: no later phase depended on them (D29).
+- With 3 seeds the "cost of the limit" is N49 +0.090 against N17 +0.074, N26 +0.077, N65 +0.074: similar for every size.
+
+### Test set (scored once at the end, D47)
+| Run | Seeds | Val | Test | Penalty vs unique data, test (val) |
+|---|---|---|---|---|
+| Unique data (E02-N49) | 3 | 1.1945 | 1.1994 | - |
+| 2 passes | 3 | 1.2011 | 1.2063 | +0.0069 (+0.0066) |
+| 4 passes | 3 | 1.2189 | 1.2241 | +0.0247 (+0.0244) |
+| 8 passes | 3 | 1.2842 | 1.2897 | +0.0903 (+0.0898) |
+| 16 passes | 1 | 1.6648 | 1.6716 | +0.4722 (+0.4703) |
+| 32 passes | 1 | 3.6424 | 3.6582 | +2.4588 (+2.4479) |
+| F2 N17 / N26 / N65 vs 8-pass N49 | 1 each | | | +0.0188 / +0.0073 / -0.0147 (+0.0194 / +0.0071 / -0.0154) |
+| F3 re-cut windows vs 8-pass N49 | 1 | | | -0.0129 (-0.0133) |
+
+FineWeb-Edu test, the 15 E04 models in `configs/frozen_configs.yaml` ("Phase 3 repetition"), scored once after all
+experiments; nothing was decided from test. Removing the contaminated test documents changes no value by more than 0.003.
+`python code/summarize.py TEST`; files `results/test/E04-*.json`.
+
 ## Findings
 1. **Repeating data hurts much earlier than Muennighoff et al. found**: already measurable at 4 passes (+0.024 with 3 seeds), large at 8 (+0.090, 3 seeds).
 2. **Beyond ~7-8 passes the model memorises:** validation turns up after ~7-8 passes whatever the subset size, while the
@@ -151,8 +208,95 @@ R2 bracket seeds (k = 2, 4 x s1, s2): commands given 15:05, joshuahanrc (launch 
    Both effects (N65 better by 0.016, re-cut windows by 0.013) are at the edge of our resolution: they pass the
    declared threshold against both references but not the more conservative repeated-data threshold. More seeds were
    not run (budget; no later phase depends on them).
+6. **Why the difference from Muennighoff et al.?** Their "4 epochs is nearly free" holds for a model sized for its compute
+   budget (Chinchilla-style, ~20 tokens per parameter in total, i.e. ~5 unique tokens per parameter at 4 epochs); our N49 at
+   4 passes sees 1.5 unique tokens per parameter, and at 8 passes 0.74. Our
+   learning rate is also high (2e-3) and we use no dropout. F2 shows that shrinking the model is not the fix under a time
+   budget (smaller models read the slice more often in the hour); F3 shows that exact sample repetition explains at most a
+   quarter. The remaining damage is plain memorisation of a small corpus by a model that can store it.
+
+### Outcome of every declared rule
+| Rule | Fired? | Outcome |
+|---|---|---|
+| R1 seed-0 verdicts (> 0.0132) | Yes | k = 2 not distinguishable; k = 4, 8, 16, 32 worse |
+| R2 boundary (bracket, 3 seeds, > 0.0091) | Yes | Bracket {2, 4}: k = 2 +0.0066 not distinguishable, k = 4 +0.0244 worse -> boundary between 2 and 4 passes; no move needed |
+| R3 reported | Yes | AVG4 penalties, passes made, best-vs-final curve gap (curves turn up from ~7-8 passes) |
+| R4 infrastructure | Flags explained | k = 32 "UNSTABLE" = sawtooth of memorisation (gradient norm < 1, 0.25 % clipped); N65 "SLOW MACHINE" = summary bug (compared with N49's speed), fixed in D27. No run replaced |
+| R5 diagnostics | Reported | Speed-adjusted penalties within 0.005 of the raw ones; train-val gap grows +0.02 / +0.18 / +0.55 / +2.3 / +9.6 nats |
+| R6 effective data | Diagnostic | 0.91 / 0.70 / 0.38 of tokens seen (3 seeds); Muennighoff's R* not meaningful (loss rises past ~8 passes) |
+| F2 size under a data limit (D26) | Run | Smaller models no better (N17 worse); N65 better at the edge of resolution |
+| F3 re-cut windows (D26) | Run | Better by 0.013-0.022, at the edge of resolution |
+| Reference seeds (D27) | Run | 3-seed reference 1.2842; F2/F3 verdicts agree with the seed-0 ones |
 
 ## Surprises, failures and what we changed
 - **Prediction missed:** we expected 2 and 4 passes to be indistinguishable from unique data and 8 only slightly worse.
 - The surprise prompted two follow-ups (F2, F3), declared before their runs (D26).
+- **The 8-pass reference was a single, unlucky seed:** all follow-ups were first compared with one run whose cost looked like
+  an outlier. Two more seeds (D27) gave a 3-seed reference; the verdicts were reported against both, as declared.
+- **Two script bugs, found while evaluating, no reported number affected:** the speed check compared every size with N49's
+  speed (flagged N65 as a slow machine; D27), and `fit_repetition.py` would have mixed the F2/F3 runs into the N49 fit (D29).
+- **Repeated-data runs turned out noisier than unique-data runs** (sd 0.0108 at 8 passes vs 0.0057); reported as a
+  sensitivity that makes two follow-up gains inconclusive.
+
+## How this relates to the readings
+- **Muennighoff et al. (2023), Scaling Data-Constrained Language Models (Reading 2):** for a fixed compute budget, up to ~4
+  epochs is nearly as good as unique data, and the value of further repeats decays with a constant of R*_D ~15 repeated
+  epochs. We find 2 passes free, 4 passes already
+  costly, and memorisation beyond ~8: much faster decay. Their fitted form only lets repeats lose value, never make the
+  model worse, so it cannot describe our 16- and 32-pass runs, where more passes reduce the effective data.
+- **Hernandez et al. (2022), Scaling Laws and Interpretability of Learning from Repeated Data:** repeating a small part of
+  the data many times can hurt far more than its share suggests, through memorisation. Our 16- and 32-pass runs show that
+  regime at small scale.
+- **Xue et al. (2023), To Repeat or Not To Repeat:** multi-epoch training degrades models, larger models more so, and
+  dropout helps. Our F2 does not show larger models degrading more under a fixed time budget (the larger one reads fewer
+  passes); dropout was not tested.
+- **Hoffmann et al. (2022, Chinchilla):** assumes unlimited fresh data. E04 shows what the "data" axis of the trade-off
+  costs once the data run out: with only a quarter of the hour's tokens available, about 2 % worse BPB; with an eighth, 7.5 %.
+
+## Limitations and what remains uncertain
+- **One model size for the dose-response (N49)** and one learning rate; regularisation (dropout, higher weight decay) and a
+  learning rate re-tuned for repeated data were not tried and could reduce the damage.
+- **One random subset per k.** Seeds vary the order, not which slice was drawn.
+- **16 and 32 passes and all follow-ups are single runs;** two follow-up gains sit at the edge of our resolution.
+- **Effective data rests on a 5-parameter loss law fitted to 14 runs** and is a diagnostic, not a measurement.
+- **Repetition is in 513-token windows,** not whole documents; F3 changes only where the windows are cut.
+- **Not tested:** repetition on another corpus; the classic data-constrained question at fixed compute (fewer passes and a
+  smaller model vs more passes) beyond the four F2 sizes.
+
+## What happened later / follow-ups
+- Phases 4-6 used unique data (no repetition), so E04 did not change any later design; its numbers appear in the report as
+  the cost of running out of data.
+- E02's write-up cites F2: under a data limit the best size does not shrink.
+- **Not done:** more seeds for N65 and F3; dropout or weight decay for repeated data; repetition at other sizes.
+
+## Compute and time used
+| Item | Jobs | Counted GPU time | Wall time | Ledger cost |
+|---|---|---|---|---|
+| Dose-response k = 2-32, seed 0 | 5 | 5.0 h | 5.2 h | $4.17 |
+| R2 bracket seeds (k = 2, 4 x 2) | 4 | 4.0 h | 4.2 h | $3.34 |
+| Reference seeds (k = 8 x 2) | 2 | 2.0 h | 2.1 h | $1.67 |
+| F2 (N17, N26, N65) and F3 (re-cut windows) | 4 | 4.0 h | 4.2 h | $3.32 |
+| Unique-data reference (E02-N49, reused) | 0 | - | - | - |
+| **Total** | **15** | **15.0 h** | **15.6 h** | **$12.50** |
+
+Runs from 4 Nov 12:27 to 5 Nov ~03:45 on joshuahanrc (dose-response and seeds), giraffes573 and jinkyungjeon (follow-ups).
+The ledger counts GPU time only (Modal bills ~1.2x in total).
+
+## How to reproduce
+- Configs: `configs/E04/N49_rep{2,4,8}.yaml` (seeds 0-2), `N49_rep{16,32}.yaml` (seed 0), `N{17,26,65}_U36M.yaml` and
+  `N49_rep8_shift.yaml` (seed 0); the unique-data reference is `configs/E02/N49.yaml` (seeds 0-2).
+- Subsets: `train_subset_tokens` picks whole training windows by a fixed permutation (key 1234), nested; re-cut windows:
+  `train_subset_shift` (`ShiftedSubsetLoader` in `code/train.py`). Both covered by tests in `code/tests/test_pipeline.py`.
+- Tables and decisions: `python code/summarize.py E04`; effective data: `python code/fit_repetition.py`; test:
+  `python code/summarize.py TEST`; figure: `python code/plots/fig_repetition.py`.
+- Result files: `results/runs/E04-*.json`, `results/runs/E02-N49__s*.json`, `results/test/E04-*.json`. Decisions D23,
+  D25-D27, D29; DECLARATIONS Amendments rows of 4 Nov.
+
+## How this phase supports the report (marking criteria)
+| Criterion | Evidence from E04 |
+|---|---|
+| Experimental design and exploration (35 %) | Random nested subsets (a first-N-tokens option was rejected because it would not be a fair sample); a boundary rule robust to non-monotonic results, fixed before the runs; two follow-ups designed to explain the surprising result, plus extra reference seeds when the reference looked unreliable |
+| Understanding and problem formulation (25 %) | Direct test of Muennighoff et al.'s 4-epoch result; effective data in their own terms; why our regime differs (unique tokens per parameter, memorisation); links to Hernandez et al. and Xue et al. |
+| Analysis and report quality (20 %) | 3-seed verdicts at the boundary; effect sizes with noise; an honest "at the edge of resolution" for two follow-ups, with the higher repeated-data noise as a sensitivity; missed predictions reported; test-set confirmation |
+| Implementation and reproducibility (20 %) | Subset and re-cut loaders tested; every number traced to run and test files; two script bugs found and fixed with no reported number affected; ledger rows annotated |
 

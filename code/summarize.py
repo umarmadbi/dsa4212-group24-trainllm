@@ -2,7 +2,7 @@
 Summarise saved run results (results/runs/*.json) for one experiment.
 
     python code/summarize.py E01          # table of all E01 runs, best LR per size, checks
-    python code/summarize.py E00
+    python code/summarize.py E00          # all E00 runs + benchmark table, compile/micro-batch, projection check
     python code/summarize.py E02|E03|E04|E05|E06|E07
 
 Needs only the Python standard library (runs on any computer, no torch).
@@ -1474,6 +1474,8 @@ def main_e07():
         for f in sl:
             x = json.loads(f.read_text())
             rid = x["run_id"]
+            if not rid.startswith(("E02-", "E07-")):
+                continue        # vocabulary-only comparison: the E08 recipes also use 16k but change other things
             e = x["sets"].get("fineweb_edu")
             src = _load_ids([rid])
             if not e or "sliding" not in e or not src:
@@ -1764,6 +1766,64 @@ def main_test():
             print(f"\nSAMPLE {rid} | {smp['prompt']!r}:\n  {smp['text']!r}")
 
 
+def main_e00():
+    """E00 benchmark table (docs/experiments/E00), rebuilt from results/runs/E00-bench_*.json.
+
+    Projected tokens in 60 min = steady tokens/s x (3600 s - compile warm-up), where the warm-up is the
+    first step's time (it includes torch.compile). Tokens/param uses total parameters (Chinchilla's
+    convention). Also checks the projection against the real 60-min E02 runs of the same shapes."""
+    bench = {}
+    for f in sorted(Path("results/runs").glob("E00-bench_*.json")):
+        r = json.loads(f.read_text())
+        bench[r["run_id"].replace("E00-bench_", "").split("__")[0]] = r
+    if not bench:
+        print("no results/runs/E00-bench_*.json files")
+        return
+    order = ["S1", "S2", "S3", "S4", "S5", "S6", "S3_nocompile", "S1_micro64"]
+    print("\nE00 benchmark table (5 min counted each, untuned LR 6e-4, bf16, 32,768 tokens/step)")
+    print(f"{'run':14s} {'params':>8s} {'non-emb':>8s} {'shape':>7s} {'compile':>7s} {'micro':>6s} "
+          f"{'warm-up s':>9s} {'steady tok/s':>12s} {'tok in 60 min':>13s} {'tok/param':>9s} {'MFU':>5s} "
+          f"{'mem GB':>6s} {'BPB 5min':>8s}")
+    proj = {}
+    for k in [k for k in order if k in bench] + [k for k in bench if k not in order]:
+        r = bench[k]; c = r["config"]
+        tph = r["steady_tokens_per_s"] * (3600 - r["first_step_s"])
+        proj[(c["n_layer"], c["n_embd"], c["compile"], c["micro_batch"])] = tph
+        print(f"{k:14s} {r['params']['total']/1e6:7.1f}M {r['params']['non_embedding']/1e6:7.1f}M "
+              f"{c['n_layer']:>3d}x{c['n_embd']:<3d} {'on' if c['compile'] else 'off':>7s} "
+              f"{c['micro_batch']:>3d}x{c['grad_accum']:<2d} {r['first_step_s']:9.0f} "
+              f"{r['steady_tokens_per_s']:12,.0f} {tph/1e9:12.2f}B {tph/r['params']['total']:9.0f} "
+              f"{100*r['mfu_steady']:4.0f}% {r['peak_memory_gb']:6.1f} {r['final_val_bpb']:8.3f}")
+
+    def ratio(a, b):
+        return bench[a]["steady_tokens_per_s"] / bench[b]["steady_tokens_per_s"] - 1
+    if "S3" in bench and "S3_nocompile" in bench:
+        a, b = bench["S3"], bench["S3_nocompile"]
+        net = (a["steady_tokens_per_s"] * (3600 - a["first_step_s"])) / \
+              (b["steady_tokens_per_s"] * (3600 - b["first_step_s"])) - 1
+        print(f"\ncompile (S3): steady speed {ratio('S3', 'S3_nocompile'):+.1%}, warm-up "
+              f"{a['first_step_s']:.0f} s vs {b['first_step_s']:.0f} s, tokens in 60 min {net:+.1%}")
+    if "S1" in bench and "S1_micro64" in bench:
+        print(f"micro-batch 64x1 vs 32x2 (S1): steady speed {ratio('S1_micro64', 'S1'):+.1%}")
+
+    # Were the 5-min projections right? Compare with the real 60-min E02 runs of the same shape.
+    real = defaultdict(list)
+    for f in Path("results/runs").glob("E02-*.json"):
+        r = json.loads(f.read_text())
+        if r.get("diverged"):
+            continue
+        c = r["config"]
+        real[(c["n_layer"], c["n_embd"])].append(r["tokens_processed"])
+    rows = [(k, v) for k, v in proj.items() if k[2] and k[3] == 32 and (k[0], k[1]) in real]
+    if rows:
+        print("\nProjection check: E00 projected tokens in 60 min vs real E02 60-min runs (same shape)")
+        for (L, d, _, _), tph in sorted(rows):
+            t = real[(L, d)]
+            print(f"  {L:>2d}x{d:<3d} projected {tph/1e9:.3f}B, real mean {statistics.mean(t)/1e9:.3f}B over "
+                  f"{len(t)} run(s) (range {min(t)/1e9:.3f}-{max(t)/1e9:.3f}B): "
+                  f"{statistics.mean(t)/tph - 1:+.1%}")
+
+
 if __name__ == "__main__":
     exp = sys.argv[1] if len(sys.argv) > 1 else "E01"
     if exp in ("E02", "E03", "E04", "E05", "E06", "E07", "E08", "TEST"):
@@ -1771,6 +1831,8 @@ if __name__ == "__main__":
          "E08": main_e08, "TEST": main_test}[exp]()
         sys.exit(0)
     main(exp)
+    if exp == "E00":
+        main_e00()
     if exp == "E01":
         sg, df = pooled_sigma(exp)
         if sg:

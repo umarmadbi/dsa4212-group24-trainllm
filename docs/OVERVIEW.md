@@ -118,8 +118,8 @@ hour**, on every validation set. Its extra computation costs only ~0.002 of that
 they train 16 % faster on the L4 (tied at equal steps); 19 narrow layers (19 x 448) are worse by 0.021. [E06](experiments/E06_depth_width.md)
 
 **Phase 5: vocabulary (E07, 5-6 Nov).** **16,384 and 32,768-token vocabularies both beat 8,192 by ~0.016**; 4,096 is
-probably worse. About a third of the gain comes from the 512-token scoring window holding more text at larger
-vocabularies. [E07](experiments/E07_vocabulary.md)
+probably worse. A small part of the gain (~0.003 BPB at 16k, ~0.006 at 32k) comes from the 512-token scoring window
+holding more text at larger vocabularies; the rest is a better model of the text. [E07](experiments/E07_vocabulary.md)
 
 **Phase 6: the combined recipe (E08, 6 Nov).** Two recipes, 3 seeds each: **RB = Muon + 16k (declared final) -0.041**,
 **RA = Muon + 16k + 6 x 768 -0.050** vs the baseline. Muon and the vocabulary gains add up almost exactly; the wide
